@@ -94,14 +94,17 @@ app/build/outputs/apk/debug/app-debug.apk
 O workflow `ci` valida lint, testes e build em pushes para `main`, pull requests e execuções
 manuais. O APK gerado fica disponível temporariamente como artefato de validação.
 
-O workflow `release` é iniciado manualmente e:
+Após um push na branch `main`, o workflow `release` aguarda o `ci` terminar com sucesso e:
 
 1. lê `versionName` e `versionCode` do Gradle;
 2. exige uma chave de assinatura configurada nos GitHub Secrets;
 3. compila e valida o APK assinado;
 4. gera `SHA256SUMS.txt`;
-5. cria a tag `vX.Y.Z`;
-6. publica a release e o atestado de procedência.
+5. cria a tag `vX.Y.Z` quando ela ainda não existe;
+6. publica automaticamente a release e o atestado de procedência.
+
+Novos commits com o mesmo `versionName` passam pelo CI normalmente, mas não recriam uma release
+existente. O disparo manual permanece disponível para recuperação operacional.
 
 As instruções completas estão em [docs/RELEASING.md](docs/RELEASING.md).
 
