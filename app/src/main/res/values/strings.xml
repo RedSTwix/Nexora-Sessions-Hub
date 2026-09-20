@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nexora Sessions Hub</string>
+    <string name="dual_app_accessibility_label">Automação do Grok Dual</string>
+    <string name="dual_app_accessibility_description">Automatiza a tela de Apps duplos da Xiaomi e toca no atalho recém-criado para abrir o Grok Dual.</string>
+    <string name="isolated_session_label">SESSÃO ISOLADA</string>
+    <string name="account_folders_title">Pastas de contas</string>
+    <string name="account_folders_description">Gerencie suas pastas de contas isoladas.</string>
+    <string name="folder_accounts_description">Gerencie as contas isoladas desta pasta.</string>
+    <string name="dual_app_preparing">Preparando o Grok Dual pela tela da Xiaomi…</string>
+    <string name="dual_app_settings_error">Não foi possível abrir a configuração de Apps duplos.</string>
+</resources>

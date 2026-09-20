@@ -1,0 +1,44 @@
+# Gradle e Kotlin
+.gradle/
+.kotlin/
+**/build/
+
+# Configuração local da máquina
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.navigation/
+
+# Builds nativos
+.externalNativeBuild/
+.cxx/
+
+# Pacotes e saídas geradas
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.hprof
+*.log
+lint-cache/
+
+# Assinaturas privadas
+*.jks
+*.keystore
+keystore.properties
+
+# Temporários e capturas de diagnóstico
+.tmp*/
+temp/
+/browser-test.png
+/device-screen.png
+/screenshots/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
