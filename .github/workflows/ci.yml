@@ -35,7 +35,14 @@ jobs:
           cache-provider: basic
 
       - name: Preparar Android SDK 36
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        shell: bash
+        run: |
+          SDKMANAGER="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            echo "sdkmanager não encontrado em $SDKMANAGER" >&2
+            exit 1
+          fi
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Permitir execução do Gradle Wrapper
         run: chmod +x gradlew
