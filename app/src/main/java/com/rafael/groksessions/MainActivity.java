@@ -43,7 +43,6 @@ import java.util.Locale;
 import java.util.Set;
 
 public final class MainActivity extends Activity {
-    private static final String GROK_URL = "https://grok.com/";
     private static final int REQUEST_AUTH_BROWSER = 4001;
     private static final String EXTRA_LAUNCH_AUTH_TAB = "androidx.browser.auth.extra.LAUNCH_AUTH_TAB";
     private static final String EXTRA_REDIRECT_SCHEME = "androidx.browser.auth.extra.REDIRECT_SCHEME";
@@ -550,7 +549,7 @@ public final class MainActivity extends Activity {
             } else if (organizeMode) {
                 toggleOrganizeItemSelection(account.id);
             } else if (!organizeMode) {
-                openBrowser(account, GROK_URL);
+                openBrowser(account, BrowserActivity.DEFAULT_URL);
             }
         });
 
@@ -811,7 +810,7 @@ public final class MainActivity extends Activity {
 
     private void showAccountMenu(View anchor, Account account) {
         List<NexoraMenuAction> actions = new ArrayList<>();
-        actions.add(new NexoraMenuAction("↗", "Abrir sessão", false, () -> openBrowser(account, GROK_URL)));
+        actions.add(new NexoraMenuAction("↗", "Abrir sessão", false, () -> openBrowser(account, BrowserActivity.DEFAULT_URL)));
         actions.add(new NexoraMenuAction(
                 "⌖",
                 repository.isAccountPinned(account.id) ? "Desafixar" : "Fixar no topo",
@@ -1640,7 +1639,7 @@ public final class MainActivity extends Activity {
             Account account = repository.add(name, folder.id);
             dialog.dismiss();
             renderContent();
-            openBrowser(account, urlAfterCreation == null ? GROK_URL : urlAfterCreation);
+            openBrowser(account, urlAfterCreation == null ? BrowserActivity.DEFAULT_URL : urlAfterCreation);
         }));
         dialog.show();
     }

@@ -40,6 +40,7 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 public final class BrowserActivity extends Activity {
+    static final String DEFAULT_URL = "https://www.google.com/";
     static final String EXTRA_PROFILE_ID = "profile_id";
     static final String EXTRA_PROFILE_NAME = "profile_name";
     static final String EXTRA_URL = "url";
@@ -509,7 +510,7 @@ public final class BrowserActivity extends Activity {
 
     private String normalizeUrl(String input) {
         if (input == null || input.trim().isEmpty()) {
-            return "https://grok.com/";
+            return DEFAULT_URL;
         }
         String value = input.trim();
         Uri uri = Uri.parse(value);
@@ -517,7 +518,7 @@ public final class BrowserActivity extends Activity {
             return "https://" + value;
         }
         if (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) {
-            return "https://grok.com/";
+            return DEFAULT_URL;
         }
         return value;
     }
