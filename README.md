@@ -14,6 +14,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Indicadores de disponibilidade** — marque contas utilizadas por um período configurável.
 - **Autenticação direcionada** — escolha a pasta e a conta quando outro aplicativo abrir um login.
 - **Grok Dual** — automação opcional para recriar o aplicativo dual em dispositivos Xiaomi/HyperOS.
+- **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
 
 ## Como funciona
@@ -65,9 +66,29 @@ precisar de ajustes em outras versões do sistema.
 
 ## Instalação
 
-Quando o projeto estiver publicado, baixe o APK assinado na página de
+Baixe o APK assinado na página de
 [releases](https://github.com/RedSTwix/Nexora-Sessions-Hub/releases). Para atualizar sem perder as
 sessões, instale a nova versão sobre a anterior e nunca limpe os dados do aplicativo.
+
+### Atualizações no aplicativo
+
+Ao abrir a tela principal, o Nexora consulta a última release estável do GitHub no máximo uma vez
+a cada seis horas. Uma nova versão aparece em um aviso na tela inicial. Também é possível consultar
+manualmente em **Configurações → Verificar atualizações**.
+
+**Baixar e instalar** inicia o download com percentual e tamanho transferido. O download continua
+fora do aplicativo; ao retornar, o progresso ou o arquivo concluído é recuperado. É possível cancelar
+e tentar novamente. Antes de instalar, o app confere SHA-256, tamanho, pacote, versão e assinatura
+do APK. O Android pode pedir permissão para instalar por essa fonte e sempre exige a confirmação
+final do usuário. Se a instalação for cancelada, o botão **Instalar atualização** permite retomá-la.
+
+A consulta acessa somente a API pública do GitHub, e o download usa o APK da release oficial.
+Contas, cookies, URLs de login e sessões não são enviados. Não há verificação com o app fechado;
+a continuação de um download já solicitado é gerenciada pelo Android.
+
+As atualizações exigem a mesma chave de assinatura e um `versionCode` maior. Builds de desenvolvimento
+usam o pacote separado `com.rafael.groksessions.debug`, para testes sem substituir a instalação oficial.
+Esses builds não são atualizados pelas releases oficiais.
 
 ## Compilar o projeto
 

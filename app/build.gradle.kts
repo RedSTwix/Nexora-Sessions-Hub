@@ -21,8 +21,8 @@ android {
         applicationId = "com.rafael.groksessions"
         minSdk = 24
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.4.19"
+        versionCode = 29
+        versionName = "0.5.0"
     }
 
     signingConfigs {
@@ -37,6 +37,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
@@ -55,5 +59,8 @@ android {
 }
 
 dependencies {
+    implementation("androidx.core:core:1.17.0")
     implementation("androidx.webkit:webkit:1.17.0")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
 }

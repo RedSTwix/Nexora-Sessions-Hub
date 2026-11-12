@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -27,6 +28,7 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -49,6 +51,14 @@ public final class MainActivity extends Activity {
     private static final String EXTRA_HTTPS_REDIRECT_PATH = "androidx.browser.auth.extra.HTTPS_REDIRECT_PATH";
 
     private AccountRepository repository;
+    private AppUpdater updater;
+    private TextView updateBanner;
+    private Dialog updateDialog;
+    private TextView updateStatus;
+    private TextView updateSize;
+    private ProgressBar updateProgress;
+    private Button updateAction;
+    private Button updateSecondary;
     private LinearLayout contentList;
     private ScrollView contentScroll;
     private Button primaryAction;
@@ -87,6 +97,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         repository = new AccountRepository(this);
+        updater = new AppUpdater(this, this::renderUpdateStatus);
         SecureSessionStore.clearLegacyCallbacks(this);
         cleanPendingProfiles();
         buildScreen();
@@ -107,6 +118,22 @@ public final class MainActivity extends Activity {
             externalIntentHandled = true;
             chooseAccountFor(pendingUrl);
         }
+        updater.onResume(pendingUrl == null && !returnResultToCaller);
+    }
+
+    @Override
+    protected void onPause() {
+        updater.onPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        updater.close();
+        if (updateDialog != null) {
+            updateDialog.dismiss();
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -178,7 +205,7 @@ public final class MainActivity extends Activity {
         TextView settingsButton = text("⚙", 20, COLOR_CYAN);
         settingsButton.setGravity(Gravity.CENTER);
         settingsButton.setIncludeFontPadding(false);
-        settingsButton.setContentDescription("Configurações de disponibilidade");
+        settingsButton.setContentDescription("Configurações e atualizações");
         settingsButton.setBackground(pressableBackground(
                 COLOR_SURFACE_ALT,
                 Color.rgb(17, 45, 59),
@@ -204,6 +231,15 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams introParams = matchWrap();
         introParams.setMargins(dp(2), dp(2), 0, dp(14));
         root.addView(intro, introParams);
+
+        updateBanner = text("", 12, COLOR_CYAN);
+        updateBanner.setPadding(dp(14), dp(12), dp(14), dp(12));
+        updateBanner.setBackground(pressableBackground(COLOR_SURFACE_ALT, COLOR_SURFACE, COLOR_CYAN, 14));
+        updateBanner.setVisibility(View.GONE);
+        updateBanner.setOnClickListener(view -> showUpdateDialog());
+        LinearLayout.LayoutParams updateParams = matchWrap();
+        updateParams.setMargins(0, 0, 0, dp(12));
+        root.addView(updateBanner, updateParams);
 
         if (!supportsProfiles()) {
             TextView warning = text(
@@ -1039,7 +1075,7 @@ public final class MainActivity extends Activity {
                 panel,
                 "⚙",
                 "Configurações",
-                "Controle os indicadores de disponibilidade.",
+                "Disponibilidade das contas e atualizações do aplicativo.",
                 "×",
                 view -> dialog.dismiss()
         );
@@ -1047,6 +1083,24 @@ public final class MainActivity extends Activity {
         Set<String> enabledFolders = new HashSet<>(repository.getAvailabilityEnabledFolderIds());
         ScrollView scroll = createPickerScroll();
         LinearLayout content = createPickerList();
+
+        LinearLayout updateCard = card();
+        TextView updateTitle = text("Atualizações do aplicativo", 15, COLOR_TEXT);
+        updateTitle.setTypeface(null, Typeface.BOLD);
+        updateCard.addView(updateTitle, matchWrap());
+        TextView version = text("Versão instalada: " + updater.installedVersion(), 12, COLOR_MUTED);
+        version.setPadding(0, dp(5), 0, dp(10));
+        updateCard.addView(version, matchWrap());
+        Button checkUpdates = compactButton("Verificar atualizações");
+        checkUpdates.setOnClickListener(view -> {
+            dialog.dismiss();
+            showUpdateDialog();
+            updater.check(true);
+        });
+        updateCard.addView(checkUpdates, matchWrap());
+        LinearLayout.LayoutParams updateCardParams = matchWrap();
+        updateCardParams.setMargins(0, 0, 0, dp(16));
+        content.addView(updateCard, updateCardParams);
 
         TextView availabilityTitle = text("DISPONIBILIDADE", 11, COLOR_CYAN);
         availabilityTitle.setTypeface(null, Typeface.BOLD);
@@ -1137,6 +1191,118 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Configurações salvas.", Toast.LENGTH_SHORT).show();
         }, "CANCELAR", view -> dialog.dismiss());
         showNexoraPickerDialog(dialog, panel);
+    }
+
+    private void showUpdateDialog() {
+        if (updateDialog != null && updateDialog.isShowing()) {
+            return;
+        }
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        updateDialog = dialog;
+        LinearLayout panel = createPickerPanel();
+        addPickerHeader(panel, "↓", "Atualizações", "Versão instalada: " + updater.installedVersion(),
+                "×", view -> dialog.dismiss());
+
+        updateStatus = text("", 14, COLOR_TEXT);
+        updateStatus.setPadding(dp(4), dp(16), dp(4), dp(12));
+        panel.addView(updateStatus, matchWrap());
+
+        updateProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        updateProgress.setMax(100);
+        updateProgress.setProgressTintList(ColorStateList.valueOf(COLOR_CYAN));
+        updateProgress.setIndeterminateTintList(ColorStateList.valueOf(COLOR_CYAN));
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+        progressParams.setMargins(dp(4), dp(5), dp(4), dp(5));
+        panel.addView(updateProgress, progressParams);
+        updateSize = text("", 12, COLOR_MUTED);
+        updateSize.setPadding(dp(4), dp(6), dp(4), dp(12));
+        panel.addView(updateSize, matchWrap());
+
+        TextView explanation = text("O APK vem das releases oficiais do GitHub. "
+                + "Ao terminar, o Android pedirá sua confirmação para atualizar sem apagar as sessões.", 12, COLOR_MUTED);
+        explanation.setPadding(dp(4), dp(4), dp(4), dp(12));
+        panel.addView(explanation, matchWrap());
+
+        updateAction = primaryButton("");
+        updateAction.setOnClickListener(view -> {
+            if (updater.phase == AppUpdater.Phase.READY) {
+                updater.install();
+            } else if (updater.release != null) {
+                updater.download();
+            } else {
+                updater.check(true);
+            }
+        });
+        panel.addView(updateAction, matchWrap());
+        updateSecondary = compactButton("FECHAR");
+        updateSecondary.setOnClickListener(view -> {
+            if (updater.phase == AppUpdater.Phase.DOWNLOADING) {
+                updater.cancelDownload();
+            } else {
+                dialog.dismiss();
+            }
+        });
+        LinearLayout.LayoutParams secondaryParams = matchWrap();
+        secondaryParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(updateSecondary, secondaryParams);
+        dialog.setContentView(panel);
+        dialog.setOnDismissListener(ignored -> {
+            updateDialog = null;
+            updateStatus = null;
+            updateSize = null;
+            updateProgress = null;
+            updateAction = null;
+            updateSecondary = null;
+        });
+        renderUpdateStatus();
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.setDimAmount(0.76f);
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.90f),
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private void renderUpdateStatus() {
+        if (updateBanner == null) {
+            return;
+        }
+        boolean downloading = updater.phase == AppUpdater.Phase.DOWNLOADING;
+        boolean verifying = updater.phase == AppUpdater.Phase.VERIFYING;
+        boolean checking = updater.phase == AppUpdater.Phase.CHECKING;
+        boolean ready = updater.phase == AppUpdater.Phase.READY;
+        int percent = updater.totalBytes > 0
+                ? (int) Math.min(100, updater.downloadedBytes * 100.0 / updater.totalBytes) : 0;
+        boolean hasUpdate = updater.release != null;
+        updateBanner.setVisibility(hasUpdate ? View.VISIBLE : View.GONE);
+        updateBanner.setText(downloading ? "↓  Baixando atualização: " + percent + "%"
+                : verifying ? "↓  Verificando atualização…"
+                : ready ? "↓  Atualização pronta · Toque para instalar"
+                : hasUpdate ? "↓  Nova versão " + updater.release.version + " · Toque para atualizar" : "");
+        if (updateStatus == null) {
+            return;
+        }
+        updateStatus.setText(updater.message);
+        updateProgress.setVisibility(downloading || verifying || checking ? View.VISIBLE : View.GONE);
+        updateProgress.setIndeterminate(verifying || checking || updater.totalBytes <= 0);
+        updateProgress.setProgress(percent);
+        updateSize.setVisibility(hasUpdate ? View.VISIBLE : View.GONE);
+        updateSize.setText(downloading
+                ? String.format(Locale.getDefault(), "%d%% · %.2f MB de %.2f MB", percent,
+                        updater.downloadedBytes / 1048576.0, updater.totalBytes / 1048576.0)
+                : hasUpdate ? String.format(Locale.getDefault(), "Versão %s · %.2f MB",
+                        updater.release.version, updater.release.size / 1048576.0) : "");
+        updateAction.setEnabled(!checking && !downloading && !verifying);
+        updateAction.setAlpha(updateAction.isEnabled() ? 1f : 0.5f);
+        updateAction.setText(checking ? "VERIFICANDO…" : downloading ? "BAIXANDO…"
+                : verifying ? "VERIFICANDO APK…" : ready ? "INSTALAR ATUALIZAÇÃO"
+                : hasUpdate ? "BAIXAR E INSTALAR" : "VERIFICAR NOVAMENTE");
+        updateSecondary.setText(downloading ? "CANCELAR DOWNLOAD" : "FECHAR");
     }
 
     private LinearLayout createAvailabilityFolderSettingRow(AccountFolder folder, Set<String> enabledFolders) {
