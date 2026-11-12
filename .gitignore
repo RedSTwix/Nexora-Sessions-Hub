@@ -25,6 +25,7 @@ captures/
 *.hprof
 *.log
 lint-cache/
+/tests/browser/node_modules/
 
 # Assinaturas privadas
 *.jks

@@ -1,0 +1,10 @@
+{
+  "name": "nexora-browser-privacy-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test profile-privacy.test.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0"
+  }
+}

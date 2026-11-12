@@ -9,6 +9,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 ## Recursos principais
 
 - **Sessões isoladas** — cada conta utiliza um perfil independente do Android System WebView.
+- **Identidade dos novos perfis** — proteção parcial contra fingerprinting, gerada somente ao criar uma conta.
 - **Pastas de contas** — organize, renomeie, personalize e reordene pastas e contas.
 - **Seleção múltipla** — mova várias contas ou reorganize grupos preservando a ordem relativa.
 - **Indicadores de disponibilidade** — marque contas utilizadas por um período configurável.
@@ -43,6 +44,23 @@ O card com o símbolo **+** ocupa toda a largura da tela e acompanha o contexto:
 isolada que abre no Google. O aplicativo não utiliza serviços de Acessibilidade.
 
 ## Privacidade e dados locais
+
+Contas criadas a partir da versão 0.7.0 recebem uma identidade aleatória persistente. Ela é mantida
+ao reabrir, renomear ou mover a conta. Contas anteriores continuam sem essa proteção adicional:
+abrir ou editar uma conta existente não gera uma identidade retroativamente.
+
+Quando o WebView suporta `DOCUMENT_START_SCRIPT`, a proteção é instalada antes dos scripts de cada
+documento, incluindo pop-ups de login e frames. Algumas leituras de Canvas, áudio offline e capacidade
+do navegador recebem variações estáveis por perfil e origem do site; detalhes da GPU são reduzidos
+a informações genéricas. A geolocalização precisa é bloqueada para esses novos perfis. O ícone do
+escudo no navegador informa se a proteção está ativa, indisponível ou se o perfil é anterior à mudança.
+
+Essa é uma proteção parcial no contexto JavaScript dos documentos. Workers, OffscreenCanvas,
+características de rede/TLS, fontes, tela, idioma, fuso horário, sistema e User-Agent continuam reais.
+Canvas muito grandes e alguns caminhos de leitura de áudio não são modificados; imagens exportadas
+por Canvas podem ter pequenas variações de pixels. Não há VPN, proxy ou mudança de IP. Cada site
+calcula sua própria fingerprint, e a diferenciação não impede todas as correlações entre perfis.
+O segredo do perfil não é fornecido como identificador público nem enviado a um servidor do app.
 
 - Cookies e armazenamento web permanecem no perfil privado do Android WebView.
 - O aplicativo não armazena senhas em arquivos próprios.
@@ -101,6 +119,17 @@ O APK de desenvolvimento será criado em:
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Os testes da proteção JavaScript rodam em um navegador Chromium real, sem acessar sites externos:
+
+```powershell
+npm ci --prefix tests/browser
+npm test --prefix tests/browser
+```
+
+No Windows, o teste utiliza o Edge instalado. Em outros sistemas, execute
+`npx playwright install chromium` dentro de `tests/browser`. A variável `NEXORA_TEST_BROWSER` permite
+informar o caminho de outro executável Chromium. Esses testes também são executados pelo CI.
 
 ## CI e releases
 

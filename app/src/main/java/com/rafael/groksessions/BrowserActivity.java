@@ -2,6 +2,7 @@ package com.rafael.groksessions;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -57,6 +58,9 @@ public final class BrowserActivity extends Activity {
     private ProgressBar progress;
     private CookieManager profileCookies;
     private String profileId;
+    private String privacySeed;
+    private boolean privacyActive;
+    private TextView sessionLabel;
     private String sourcePackage;
     private boolean returnResultToCaller;
     private String redirectScheme;
@@ -99,6 +103,12 @@ public final class BrowserActivity extends Activity {
             return;
         }
 
+        for (Account account : new AccountRepository(this).getAll()) {
+            if (profileId.equals(account.id)) {
+                privacySeed = account.privacySeed;
+                break;
+            }
+        }
         buildBrowser(profileName == null ? "Conta" : profileName, profileId);
 
         Bundle webState = savedInstanceState == null ? null : savedInstanceState.getBundle("web_state");
@@ -187,6 +197,7 @@ public final class BrowserActivity extends Activity {
         identity.setOrientation(LinearLayout.VERTICAL);
         identity.setPadding(dp(12), 0, 0, 0);
         TextView label = new TextView(this);
+        sessionLabel = label;
         label.setText(R.string.isolated_session_label);
         label.setTextColor(COLOR_CYAN);
         label.setTextSize(9);
@@ -207,6 +218,12 @@ public final class BrowserActivity extends Activity {
         shield.setTextColor(COLOR_CYAN);
         shield.setTextSize(14);
         shield.setBackground(roundedBackground(Color.rgb(7, 40, 46), 12, Color.rgb(23, 94, 98), 1));
+        shield.setContentDescription(getString(R.string.profile_privacy_title));
+        shield.setOnClickListener(view -> new AlertDialog.Builder(this)
+                .setTitle(R.string.profile_privacy_title)
+                .setMessage(privacySeed == null ? R.string.profile_privacy_legacy
+                        : privacyActive ? R.string.profile_privacy_active : R.string.profile_privacy_unavailable)
+                .setPositiveButton("OK", null).show());
         titleBar.addView(shield, new LinearLayout.LayoutParams(dp(38), dp(38)));
         root.addView(titleBar, matchWrap());
 
@@ -302,6 +319,12 @@ public final class BrowserActivity extends Activity {
         settings.setDisplayZoomControls(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             settings.setSafeBrowsingEnabled(true);
+        }
+
+        boolean protectedView = ProfilePrivacy.apply(this, view, privacySeed);
+        if (view == webView) {
+            privacyActive = protectedView;
+            sessionLabel.setText(privacyActive ? R.string.private_identity_label : R.string.isolated_session_label);
         }
 
         Profile profile = WebViewCompat.getProfile(view);

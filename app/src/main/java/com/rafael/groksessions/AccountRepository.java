@@ -43,11 +43,9 @@ final class AccountRepository {
             JSONArray array = new JSONArray(raw);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.getJSONObject(i);
-                String id = item.optString("id", "");
-                String name = item.optString("name", "");
-                String folderId = item.optString("folderId", LEGACY_FOLDER_ID);
-                if (!id.isEmpty() && !name.isEmpty()) {
-                    result.add(new Account(id, name, folderId));
+                Account account = Account.fromJson(item, LEGACY_FOLDER_ID);
+                if (!account.id.isEmpty() && !account.name.isEmpty()) {
+                    result.add(account);
                 }
             }
         } catch (JSONException ignored) {
@@ -70,7 +68,8 @@ final class AccountRepository {
         Account account = new Account(
                 "grok_" + UUID.randomUUID().toString().replace("-", ""),
                 name.trim(),
-                folderId
+                folderId,
+                ProfileIdentity.newSeed()
         );
         List<Account> accounts = getAll();
         accounts.add(account);
@@ -129,7 +128,7 @@ final class AccountRepository {
         List<Account> renamed = new ArrayList<>();
         for (Account account : accounts) {
             if (account.id.equals(accountId)) {
-                renamed.add(new Account(account.id, newName.trim(), account.folderId));
+                renamed.add(account.renamed(newName));
             } else {
                 renamed.add(account);
             }
@@ -292,7 +291,7 @@ final class AccountRepository {
         List<Account> moved = new ArrayList<>();
         for (Account account : accounts) {
             if (accountIds.contains(account.id)) {
-                moved.add(new Account(account.id, account.name, targetFolderId));
+                moved.add(account.movedTo(targetFolderId));
             } else {
                 moved.add(account);
             }
@@ -499,12 +498,8 @@ final class AccountRepository {
     private void save(List<Account> accounts) {
         JSONArray array = new JSONArray();
         for (Account account : accounts) {
-            JSONObject item = new JSONObject();
             try {
-                item.put("id", account.id);
-                item.put("name", account.name);
-                item.put("folderId", account.folderId);
-                array.put(item);
+                array.put(account.toJson());
             } catch (JSONException ignored) {
                 // Strings simples não devem falhar ao serem serializadas.
             }

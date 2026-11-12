@@ -14,6 +14,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  browser-privacy:
+    name: Validar proteção dos perfis (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v7
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/browser/package-lock.json
+
+      - name: Instalar dependências dos testes
+        run: npm ci --prefix tests/browser
+
+      - name: Preparar Chromium
+        working-directory: tests/browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Validar diferenciação e compatibilidade
+        run: npm test --prefix tests/browser
+
   validate:
     name: Validar e compilar (Android)
     runs-on: ubuntu-latest
