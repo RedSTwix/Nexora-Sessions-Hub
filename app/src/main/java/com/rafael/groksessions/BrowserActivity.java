@@ -13,6 +13,7 @@ import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Message;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -26,6 +27,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -48,6 +50,8 @@ public final class BrowserActivity extends Activity {
     static final String EXTRA_REDIRECT_PATH = "redirect_path";
 
     private WebView webView;
+    private WebView popupWebView;
+    private FrameLayout browserContainer;
     private EditText address;
     private ProgressBar progress;
     private CookieManager profileCookies;
@@ -116,6 +120,7 @@ public final class BrowserActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        closePopup();
         flushCookies();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backInvokedCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backInvokedCallback);
@@ -146,6 +151,10 @@ public final class BrowserActivity extends Activity {
     }
 
     private void handleBackNavigation() {
+        if (popupWebView != null) {
+            closePopup();
+            return;
+        }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
@@ -209,14 +218,21 @@ public final class BrowserActivity extends Activity {
         back.setTextSize(25);
         back.setBackground(pressableBackground(COLOR_SURFACE_ALT, Color.rgb(17, 45, 59), 12));
         back.setOnClickListener(view -> {
-            if (webView.canGoBack()) webView.goBack();
+            if (popupWebView != null) {
+                closePopup();
+            } else if (webView.canGoBack()) {
+                webView.goBack();
+            }
         });
         navigation.addView(back, new LinearLayout.LayoutParams(dp(42), dp(44)));
 
         TextView reload = toolbarButton("↻");
         reload.setTextSize(19);
         reload.setBackground(pressableBackground(COLOR_SURFACE_ALT, Color.rgb(17, 45, 59), 12));
-        reload.setOnClickListener(view -> webView.reload());
+        reload.setOnClickListener(view -> {
+            WebView active = activeWebView();
+            if (active != null) active.reload();
+        });
         LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(dp(42), dp(44));
         reloadParams.setMargins(dp(6), 0, dp(8), 0);
         navigation.addView(reload, reloadParams);
@@ -235,7 +251,8 @@ public final class BrowserActivity extends Activity {
         address.setOnEditorActionListener((view, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
             if (actionId == EditorInfo.IME_ACTION_GO || enter) {
-                webView.loadUrl(normalizeUrl(address.getText().toString()));
+                WebView active = activeWebView();
+                if (active != null) active.loadUrl(normalizeUrl(address.getText().toString()));
                 address.clearFocus();
                 return true;
             }
@@ -255,7 +272,12 @@ public final class BrowserActivity extends Activity {
         WebViewCompat.setProfile(webView, profileId);
         configureWebView(webView);
 
-        root.addView(webView, new LinearLayout.LayoutParams(
+        browserContainer = new FrameLayout(this);
+        browserContainer.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        root.addView(browserContainer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 0,
                 1f
@@ -274,7 +296,7 @@ public final class BrowserActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setSupportMultipleWindows(false);
+        settings.setSupportMultipleWindows(true);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -299,12 +321,12 @@ public final class BrowserActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView webView, String url, Bitmap favicon) {
-                address.setText(url);
+                if (webView == activeWebView()) address.setText(url);
             }
 
             @Override
             public void onPageFinished(WebView webView, String url) {
-                address.setText(url);
+                if (webView == activeWebView()) address.setText(url);
                 flushCookies();
             }
 
@@ -318,18 +340,66 @@ public final class BrowserActivity extends Activity {
 
         view.setWebChromeClient(new WebChromeClient() {
             @Override
+            public boolean onCreateWindow(WebView parent, boolean isDialog,
+                                          boolean isUserGesture, Message resultMsg) {
+                if (popupWebView != null || browserContainer == null
+                        || resultMsg == null
+                        || !(resultMsg.obj instanceof WebView.WebViewTransport)) {
+                    return false;
+                }
+
+                WebView popup = new WebView(BrowserActivity.this);
+                // A janela do login deve compartilhar somente o perfil desta conta.
+                WebViewCompat.setProfile(popup, profileId);
+                configureWebView(popup);
+                popupWebView = popup;
+                browserContainer.addView(popup, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                ));
+
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popup);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
+            @Override
+            public void onCloseWindow(WebView window) {
+                if (window == popupWebView) closePopup();
+            }
+
+            @Override
             public void onProgressChanged(WebView webView, int newProgress) {
+                if (webView != activeWebView()) return;
                 progress.setProgress(newProgress);
                 progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
 
             @Override
             public void onReceivedTitle(WebView webView, String title) {
-                if (title != null && !title.isEmpty()) {
+                if (webView == activeWebView() && title != null && !title.isEmpty()) {
                     setTitle(title);
                 }
             }
         });
+    }
+
+    private WebView activeWebView() {
+        return popupWebView != null ? popupWebView : webView;
+    }
+
+    private void closePopup() {
+        if (popupWebView == null) return;
+        WebView popup = popupWebView;
+        popupWebView = null;
+        if (browserContainer != null) browserContainer.removeView(popup);
+        popup.stopLoading();
+        popup.destroy();
+        if (webView != null && address != null && webView.getUrl() != null) {
+            address.setText(webView.getUrl());
+        }
+        flushCookies();
     }
 
     private boolean handleNavigation(Uri uri) {
