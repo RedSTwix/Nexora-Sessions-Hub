@@ -11,12 +11,12 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Browser;
-import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -60,13 +60,13 @@ public final class MainActivity extends Activity {
     private Button updateSecondary;
     private LinearLayout contentList;
     private ScrollView contentScroll;
-    private Button primaryAction;
-    private View dualSwitchButton;
+    private LinearLayout primaryAction;
+    private TextView primaryActionTitle;
+    private TextView primaryActionSubtitle;
     private Button organizeButton;
     private Button selectButton;
     private TextView sectionTitle;
     private TextView sectionSubtitle;
-    private TextView automationStatus;
     private AccountFolder selectedFolder;
     private String pendingUrl;
     private String sourcePackage;
@@ -75,7 +75,6 @@ public final class MainActivity extends Activity {
     private String redirectHost;
     private String redirectPath;
     private boolean externalIntentHandled;
-    private boolean waitingForAccessibility;
     private boolean organizeMode;
     private boolean selectionMode;
     private final Set<String> selectedAccountIds = new HashSet<>();
@@ -107,11 +106,6 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        refreshAutomationStatus();
-        if (waitingForAccessibility && DualAppAutomationService.isEnabled(this)) {
-            waitingForAccessibility = false;
-            startAccessibilitySwitch();
-        }
         renderContent();
         if (pendingUrl != null && !externalIntentHandled) {
             externalIntentHandled = true;
@@ -253,47 +247,44 @@ public final class MainActivity extends Activity {
             root.addView(warning, warningParams);
         }
 
-        LinearLayout quickActions = new LinearLayout(this);
-        quickActions.setOrientation(LinearLayout.HORIZONTAL);
-        quickActions.setGravity(Gravity.CENTER_VERTICAL);
+        primaryAction = new LinearLayout(this);
+        primaryAction.setGravity(Gravity.CENTER_VERTICAL);
+        primaryAction.setMinimumHeight(dp(88));
+        primaryAction.setPadding(dp(14), dp(14), dp(16), dp(14));
+        primaryAction.setFocusable(true);
+        primaryAction.setBackground(gradientStrokeBackground(
+                new int[]{Color.rgb(7, 38, 48), Color.rgb(12, 30, 57), Color.rgb(35, 28, 67)},
+                22, Color.rgb(38, 103, 130), 1));
+        primaryAction.setForeground(new RippleDrawable(
+                ColorStateList.valueOf(Color.argb(45, 34, 238, 226)), null,
+                roundedBackground(Color.WHITE, 22, Color.TRANSPARENT, 0)));
+        applyGlow(primaryAction, Color.rgb(50, 110, 220), 8);
 
-        LinearLayout dualAction = new LinearLayout(this);
-        dualAction.setGravity(Gravity.CENTER_VERTICAL);
-        dualAction.setPadding(dp(14), 0, dp(12), 0);
-        dualAction.setBackground(gradientStrokeBackground(
-                new int[]{Color.rgb(7, 43, 57), Color.rgb(8, 33, 62), Color.rgb(34, 39, 105)},
-                16,
-                Color.rgb(16, 150, 220),
-                1
-        ));
-        applyGlow(dualAction, Color.rgb(18, 116, 255), 10);
-        TextView switchIcon = text("↻", 27, COLOR_CYAN);
-        switchIcon.setGravity(Gravity.CENTER);
-        applyTextGlow(switchIcon, COLOR_CYAN, 5);
-        dualAction.addView(switchIcon, new LinearLayout.LayoutParams(dp(52), dp(58)));
-        LinearLayout dualCopy = new LinearLayout(this);
-        dualCopy.setOrientation(LinearLayout.VERTICAL);
-        TextView dualTitle = text("Trocar Grok Dual", 14, COLOR_TEXT);
-        dualTitle.setTypeface(null, Typeface.BOLD);
-        applyTextGlow(dualTitle, Color.rgb(63, 135, 224), 2);
-        dualCopy.addView(dualTitle, matchWrap());
-        dualCopy.addView(text("Alternar ambiente de navegação", 10, COLOR_MUTED), matchWrap());
-        dualAction.addView(dualCopy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView dualArrow = text("›", 27, COLOR_MUTED);
-        dualArrow.setGravity(Gravity.CENTER);
-        dualAction.addView(dualArrow, new LinearLayout.LayoutParams(dp(24), dp(58)));
-        dualSwitchButton = dualAction;
-        dualSwitchButton.setOnClickListener(view -> confirmDualSwitch());
-        quickActions.addView(dualSwitchButton, new LinearLayout.LayoutParams(
-                0,
-                dp(64),
-                1f
-        ));
+        TextView plus = text("＋", 34, COLOR_PAGE);
+        plus.setGravity(Gravity.CENTER);
+        plus.setIncludeFontPadding(false);
+        plus.setTypeface(null, Typeface.BOLD);
+        plus.setBackground(gradientBackground(COLOR_CYAN, COLOR_VIOLET, 18));
+        plus.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        primaryAction.addView(plus, new LinearLayout.LayoutParams(dp(58), dp(58)));
 
-        primaryAction = primaryButton("＋");
-        primaryAction.setContentDescription("Criar pasta");
-        primaryAction.setTextSize(25);
-        applyGlow(primaryAction, Color.rgb(104, 76, 255), 12);
+        LinearLayout createCopy = new LinearLayout(this);
+        createCopy.setOrientation(LinearLayout.VERTICAL);
+        createCopy.setPadding(dp(14), 0, dp(10), 0);
+        createCopy.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        primaryActionTitle = text("", 16, COLOR_TEXT);
+        primaryActionTitle.setTypeface(null, Typeface.BOLD);
+        createCopy.addView(primaryActionTitle, matchWrap());
+        primaryActionSubtitle = text("", 11, COLOR_MUTED);
+        primaryActionSubtitle.setPadding(0, dp(4), 0, 0);
+        createCopy.addView(primaryActionSubtitle, matchWrap());
+        primaryAction.addView(createCopy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView createArrow = text("↗", 21, COLOR_CYAN);
+        createArrow.setGravity(Gravity.CENTER);
+        createArrow.setBackground(roundedBackground(Color.rgb(9, 34, 49), 12, COLOR_LINE, 1));
+        createArrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        primaryAction.addView(createArrow, new LinearLayout.LayoutParams(dp(34), dp(34)));
         primaryAction.setOnClickListener(view -> {
             if (selectedFolder == null) {
                 showAddFolderDialog(null);
@@ -301,12 +292,7 @@ public final class MainActivity extends Activity {
                 showAddAccountDialog(selectedFolder, null);
             }
         });
-        LinearLayout.LayoutParams createParams = new LinearLayout.LayoutParams(dp(58), dp(64));
-        createParams.setMargins(dp(8), 0, 0, 0);
-        quickActions.addView(primaryAction, createParams);
-        root.addView(quickActions, matchWrap());
-
-        automationStatus = text("", 1, Color.TRANSPARENT);
+        root.addView(primaryAction, matchWrap());
 
         LinearLayout managerHeader = new LinearLayout(this);
         managerHeader.setOrientation(LinearLayout.HORIZONTAL);
@@ -391,8 +377,9 @@ public final class MainActivity extends Activity {
     }
 
     private void renderFolders() {
-        primaryAction.setText("＋");
-        primaryAction.setContentDescription("Criar pasta");
+        primaryActionTitle.setText(R.string.create_folder_action);
+        primaryActionSubtitle.setText(R.string.create_folder_hint);
+        primaryAction.setContentDescription(getString(R.string.create_folder_action));
         sectionTitle.setText(R.string.account_folders_title);
         sectionSubtitle.setText(R.string.account_folders_description);
         List<AccountFolder> folders = repository.getFolders();
@@ -413,8 +400,9 @@ public final class MainActivity extends Activity {
     }
 
     private void renderAccountsInFolder() {
-        primaryAction.setText("＋");
-        primaryAction.setContentDescription("Adicionar conta");
+        primaryActionTitle.setText(R.string.create_account_action);
+        primaryActionSubtitle.setText(R.string.create_account_hint);
+        primaryAction.setContentDescription(getString(R.string.create_account_action));
         sectionTitle.setText(selectedFolder.name);
         sectionSubtitle.setText(R.string.folder_accounts_description);
 
@@ -1836,77 +1824,6 @@ public final class MainActivity extends Activity {
             return null;
         }
         return candidate;
-    }
-
-    private void confirmDualSwitch() {
-        new AlertDialog.Builder(this)
-                .setTitle("Trocar a conta do Grok Dual?")
-                .setMessage(
-                        "O Grok Dual será fechado e seus dados locais serão apagados para voltar à tela de login, "
-                                + "sem usar o botão Encerrar sessão da xAI.\n\n"
-                                + "Configurações, downloads e conteúdo ainda não sincronizado dentro do Grok Dual podem ser perdidos. "
-                                + "A credencial Android local do Grok Dual também será removida. "
-                                + "As pastas, perfis e cookies deste navegador não serão apagados."
-                )
-                .setPositiveButton("Preparar troca", (dialog, which) -> beginDualSwitch())
-                .setNegativeButton("Cancelar", null)
-                .show();
-    }
-
-    private void beginDualSwitch() {
-        if (!DualAppAutomationService.isEnabled(this)) {
-            showAccessibilitySetup();
-            return;
-        }
-        startAccessibilitySwitch();
-    }
-
-    private void startAccessibilitySwitch() {
-        automationStatus.setText(R.string.dual_app_preparing);
-        if (!DualAppAutomationService.requestSwitch(this)) {
-            automationStatus.setText(R.string.dual_app_settings_error);
-            Toast.makeText(this, "A tela de Apps duplos da Xiaomi não foi encontrada.", Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void refreshAutomationStatus() {
-        if (automationStatus == null) {
-            return;
-        }
-        String lastResult = DualAppAutomationService.consumeLastResult(this);
-        if (lastResult != null) {
-            automationStatus.setText(lastResult);
-            return;
-        }
-        automationStatus.setText(
-                DualAppAutomationService.isEnabled(this)
-                        ? "Automação por Acessibilidade ativada; Shizuku não é necessário."
-                        : "Ative a Acessibilidade uma vez para trocar sem Shizuku ou depuração."
-        );
-    }
-
-    private void showAccessibilitySetup() {
-        new AlertDialog.Builder(this)
-                .setTitle("Ativar automação permanente")
-                .setMessage(
-                        "Ative o serviço “Automação do Grok Dual” nas configurações de Acessibilidade. "
-                                + "Ele observa somente a tela de Apps duplos da Xiaomi e automatiza desligar, ligar e abrir o Grok Dual.\n\n"
-                                + "Depois de ativado, não será necessário Shizuku, computador ou depuração."
-                )
-                .setPositiveButton("Abrir Acessibilidade", (dialog, which) -> openAccessibilitySettings())
-                .setNegativeButton("Agora não", null)
-                .show();
-    }
-
-    private void openAccessibilitySettings() {
-        waitingForAccessibility = true;
-        Intent details = new Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS");
-        details.setData(Uri.parse("package:" + getPackageName()));
-        try {
-            startActivity(details);
-        } catch (RuntimeException exception) {
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-        }
     }
 
     private boolean supportsProfiles() {

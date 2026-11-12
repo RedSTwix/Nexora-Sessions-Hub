@@ -13,7 +13,6 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Seleção múltipla** — mova várias contas ou reorganize grupos preservando a ordem relativa.
 - **Indicadores de disponibilidade** — marque contas utilizadas por um período configurável.
 - **Autenticação direcionada** — escolha a pasta e a conta quando outro aplicativo abrir um login.
-- **Grok Dual** — automação opcional para recriar o aplicativo dual em dispositivos Xiaomi/HyperOS.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
 
@@ -37,17 +36,11 @@ O controle de disponibilidade ajuda a espaçar o uso das contas:
 - uma pasta fica vermelha quando todas as suas contas controladas estão indisponíveis;
 - **Liberar todos agora** redefine somente os indicadores, sem apagar logins, cookies ou sessões.
 
-## Trocar o Grok Dual
+## Criar pastas e contas
 
-Não use **Encerrar sessão** dentro do Grok para apenas trocar a conta: essa ação pode revogar a
-sessão no servidor. Use **Trocar Grok Dual** na tela inicial.
-
-Com a Acessibilidade ativada, o aplicativo abre a tela oficial de Apps duplos da Xiaomi, remove o
-clone local, confirma a recriação e abre o novo atalho no perfil `XSpace`. O serviço observa apenas
-os componentes Xiaomi necessários ao fluxo.
-
-Essa automação é específica para o comportamento atual de dispositivos Xiaomi/HyperOS e pode
-precisar de ajustes em outras versões do sistema.
+O card com o símbolo **+** ocupa toda a largura da tela e acompanha o contexto: na tela inicial,
+**Criar pasta** organiza um novo grupo; dentro de uma pasta, **Adicionar conta** cria uma sessão
+isolada que abre no Google. O aplicativo não utiliza serviços de Acessibilidade.
 
 ## Privacidade e dados locais
 
@@ -62,7 +55,6 @@ precisar de ajustes em outras versões do sistema.
 - Android 7.0 ou superior.
 - Android System WebView atualizado e com suporte a `MULTI_PROFILE`.
 - Para compilar: JDK 17 e Android SDK 36.
-- A automação do Grok Dual requer um dispositivo Xiaomi/HyperOS compatível.
 
 ## Instalação
 
@@ -134,7 +126,7 @@ As instruções completas estão em [docs/RELEASING.md](docs/RELEASING.md).
 ```text
 Nexora-Sessions-Hub/
 ├── .github/workflows/       # Validação e publicação automatizadas
-├── app/src/main/java/       # Aplicação, perfis e automação do Grok Dual
+├── app/src/main/java/       # Aplicação, perfis isolados e atualizações
 ├── app/src/main/res/        # Tema, ícones e configuração Android
 ├── docs/RELEASING.md        # Assinatura e processo de release
 ├── CONTRIBUTING.md          # Padrão de commits e contribuições
