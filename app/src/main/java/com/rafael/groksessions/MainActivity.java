@@ -876,7 +876,12 @@ public final class MainActivity extends Activity {
             row.setContentDescription(action.label);
             row.setOnClickListener(view -> {
                 popup.dismiss();
-                view.post(action.action);
+                // A linha foi removida com o popup; sua fila de post pode nunca executar.
+                getWindow().getDecorView().post(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        action.action.run();
+                    }
+                });
             });
             panel.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
