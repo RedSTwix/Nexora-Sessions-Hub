@@ -19,6 +19,135 @@
         return value >>> 0;
     };
 
+    // Synthetic private IPv4 for WebRTC readouts, stable for this profile and origin.
+    // This masks JavaScript metadata; it does not alter interfaces, routing or the public IP.
+    const addressKey = number('webrtc-local-address');
+    const localAddress = '10.' + ((addressKey >>> 16) & 255) + '.'
+        + ((addressKey >>> 8) & 255) + '.' + ((addressKey & 255) % 254 + 1);
+    const privateAddress = (value) => {
+        if (typeof value !== 'string') return false;
+        const host = value.toLowerCase();
+        if (host.endsWith('.local')) return true;
+        if (/^(fc|fd)[0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host)) return true;
+        if (host.startsWith('::ffff:')) return privateAddress(host.substring(7));
+        const octets = host.split('.').map(Number);
+        if (octets.length !== 4 || !octets.every(value => Number.isInteger(value) && value >= 0 && value <= 255)) return false;
+        return octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+            || (octets[0] === 192 && octets[1] === 168) || (octets[0] === 169 && octets[1] === 254)
+            || (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127);
+    };
+    const maskAddress = value => privateAddress(value) ? localAddress : value;
+    const maskCandidate = (candidate) => {
+        if (typeof candidate !== 'string' || !/^(a=)?candidate:/i.test(candidate)) return candidate;
+        const fields = candidate.split(/\s+/);
+        if (fields.length < 8) return candidate;
+        if (fields[7] === 'host' || privateAddress(fields[4])) fields[4] = localAddress;
+        for (let i = 8; i + 1 < fields.length; i++) {
+            if (fields[i] === 'raddr') fields[i + 1] = maskAddress(fields[i + 1]);
+        }
+        return fields.join(' ');
+    };
+    const maskSdp = (sdp) => typeof sdp !== 'string' ? sdp : sdp.split(/(\r?\n)/).map(line => {
+        if (/^a=candidate:/i.test(line)) return maskCandidate(line);
+        const connection = /^(c=IN IP[46] )(.+)$/.exec(line);
+        if (connection && privateAddress(connection[2])) return 'c=IN IP4 ' + localAddress;
+        return line;
+    }).join('');
+
+    try {
+        const prototype = globalThis.RTCIceCandidate && RTCIceCandidate.prototype;
+        if (prototype) {
+            const type = Object.getOwnPropertyDescriptor(prototype, 'type');
+            for (const name of ['candidate', 'address', 'relatedAddress']) {
+                const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+                if (!descriptor || !descriptor.get || !descriptor.configurable) continue;
+                const read = descriptor.get;
+                Object.defineProperty(prototype, name, {
+                    ...descriptor,
+                    get() {
+                        const value = Reflect.apply(read, this, []);
+                        if (name === 'candidate') return maskCandidate(value);
+                        const host = name === 'address' && type && type.get
+                            && Reflect.apply(type.get, this, []) === 'host';
+                        return host && value ? localAddress : maskAddress(value);
+                    }
+                });
+            }
+            const original = prototype.toJSON;
+            if (original) prototype.toJSON = function (...args) {
+                const value = Reflect.apply(original, this, args);
+                value.candidate = maskCandidate(value.candidate);
+                return value;
+            };
+        }
+    } catch (_) { /* A locked interface does not disable other profile protections. */ }
+
+    try {
+        const prototype = globalThis.RTCSessionDescription && RTCSessionDescription.prototype;
+        const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'sdp');
+        if (descriptor && descriptor.get && descriptor.configurable) {
+            const read = descriptor.get;
+            Object.defineProperty(prototype, 'sdp', {
+                ...descriptor, get() { return maskSdp(Reflect.apply(read, this, [])); }
+            });
+            const original = prototype.toJSON;
+            if (original) prototype.toJSON = function (...args) {
+                const value = Reflect.apply(original, this, args);
+                value.sdp = maskSdp(value.sdp);
+                return value;
+            };
+        }
+        const Peer = globalThis.RTCPeerConnection || globalThis.webkitRTCPeerConnection;
+        if (Peer) for (const name of ['createOffer', 'createAnswer']) {
+            const original = Peer.prototype[name];
+            const maskDescription = value => value == null ? value : ({ type: value.type, sdp: maskSdp(value.sdp) });
+            Peer.prototype[name] = function (...args) {
+                if (typeof args[0] === 'function') {
+                    const success = args[0];
+                    args[0] = value => success(maskDescription(value));
+                }
+                const result = Reflect.apply(original, this, args);
+                return result && typeof result.then === 'function' ? result.then(maskDescription) : result;
+            };
+        }
+    } catch (_) { /* Preserve native negotiation where a browser cannot patch the descriptors. */ }
+
+    for (const name of ['RTCPeerConnection', 'RTCRtpSender', 'RTCRtpReceiver']) {
+        try {
+            const prototype = globalThis[name] && globalThis[name].prototype;
+            const original = prototype && prototype.getStats;
+            if (!original) continue;
+            prototype.getStats = function (...args) {
+                return Reflect.apply(original, this, args).then(report => {
+                    const values = new Map();
+                    for (const stat of report.values()) {
+                        const value = { ...stat };
+                        if (value.type === 'local-candidate') for (const field of ['address', 'ip', 'relatedAddress']) {
+                            if (typeof value[field] !== 'string') continue;
+                            value[field] = field !== 'relatedAddress' && value.candidateType === 'host'
+                                ? localAddress : maskAddress(value[field]);
+                        }
+                        values.set(value.id, value);
+                    }
+                    // Some implementations recreate dictionaries on every read; editing a value
+                    // from values() does not sanitize subsequent get(), entries() or forEach().
+                    let masked;
+                    masked = new Proxy(report, {
+                        get(target, property) {
+                            if (property === Symbol.iterator) return values[Symbol.iterator].bind(values);
+                            if (property === 'size') return values.size;
+                            if (['get', 'has', 'keys', 'values', 'entries'].includes(property)) return values[property].bind(values);
+                            if (property === 'forEach') return (callback, receiver) =>
+                                values.forEach((value, id) => callback.call(receiver, value, id, masked));
+                            return Reflect.get(target, property, target);
+                        }
+                    });
+                    return masked;
+                });
+            };
+        } catch (_) { /* Older statistics interfaces may not support the promise-based API. */ }
+    }
+
     // Coarse, plausible resource buckets, limited to the capacity actually reported by the browser.
     for (const [name, buckets] of [['hardwareConcurrency', [1, 2, 4, 8]], ['deviceMemory', [1, 2, 4, 8]]]) {
         try {

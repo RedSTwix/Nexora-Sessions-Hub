@@ -62,6 +62,15 @@ por Canvas podem ter pequenas variações de pixels. Não há VPN, proxy ou muda
 calcula sua própria fingerprint, e a diferenciação não impede todas as correlações entre perfis.
 O segredo do perfil não é fornecido como identificador público nem enviado a um servidor do app.
 
+A partir da 0.7.2, os perfis com identidade também apresentam um IPv4 privado fictício da faixa
+`10.x.x.x` nas leituras WebRTC. O valor é derivado da identidade e da origem do site: permanece
+estável ao reabrir e varia entre perfis e sites. São tratadas leituras de candidatos ICE (incluindo
+nomes mDNS), SDP e estatísticas locais. Não são gerados candidatos ou eventos de rede falsos.
+Essa alteração de metadados JavaScript não muda interfaces, rotas ou o IP público da conexão;
+endereços ainda podem ser descobertos por caminhos não cobertos. A sinalização de endereços
+fictícios pode impedir chamadas e conexões de dados WebRTC. Perfis anteriores sem identidade não
+recebem essa alteração.
+
 - Cookies e armazenamento web permanecem no perfil privado do Android WebView.
 - O aplicativo não armazena senhas em arquivos próprios.
 - URLs temporárias de retorno não são exportadas nem sincronizadas.

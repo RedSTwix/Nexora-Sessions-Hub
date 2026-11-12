@@ -14,7 +14,9 @@ const captureNative = `globalThis.__native = {
   dataUrl: HTMLCanvasElement.prototype.toDataURL,
   hardware: navigator.hardwareConcurrency,
   memory: navigator.deviceMemory,
-  gl: globalThis.WebGLRenderingContext && WebGLRenderingContext.prototype.getParameter
+  gl: globalThis.WebGLRenderingContext && WebGLRenderingContext.prototype.getParameter,
+  rtcCandidate: globalThis.RTCIceCandidate && Object.getOwnPropertyDescriptor(RTCIceCandidate.prototype, 'candidate').get,
+  rtcStats: globalThis.RTCPeerConnection && RTCPeerConnection.prototype.getStats
 };`;
 let browser;
 
@@ -240,5 +242,158 @@ test('WebGL hides detailed driver strings without changing renderer capabilities
     if (result.vendor) assert.equal(result.vendor, 'WebKit');
     if (result.renderer) assert.equal(result.renderer, 'WebKit WebGL');
     assert.equal(result.maximum, result.nativeMaximum);
+  } finally { await opened.context.close(); }
+});
+
+async function rtcAddresses(page) {
+  return page.evaluate(() => {
+    const strings = [
+      'candidate:1 1 udp 2122260223 192.168.0.101 50000 typ host',
+      'candidate:2 1 udp 2122260223 172.16.3.4 50001 typ host',
+      'candidate:3 1 udp 2122260223 fd12:3456::1 50002 typ host',
+      'candidate:4 1 udp 2122260223 fe80::1234 50003 typ host',
+      'candidate:5 1 udp 2122260223 sample-device.local 50004 typ host',
+      'candidate:6 1 udp 1686052607 203.0.113.15 60000 typ srflx raddr 192.168.0.101 rport 50000'
+    ];
+    return strings.map(candidate => {
+      const value = new RTCIceCandidate({ candidate, sdpMid: '0', sdpMLineIndex: 0 });
+      return { candidate: value.candidate, address: value.address, relatedAddress: value.relatedAddress,
+        json: value.toJSON(), serialized: JSON.parse(JSON.stringify(value)),
+        native: __native.rtcCandidate.call(value) };
+    });
+  });
+}
+
+test('WebRTC private readouts are stable and differ between profiles and sites', async () => {
+  const a = await open(SEED_A);
+  const b = await open(SEED_B);
+  const site = await open(SEED_A, URL_B);
+  try {
+    const [one, two, three] = await Promise.all([rtcAddresses(a.page), rtcAddresses(b.page), rtcAddresses(site.page)]);
+    const address = one[0].address;
+    assert.match(address, /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+    assert.notEqual(address, two[0].address);
+    assert.notEqual(address, three[0].address);
+    for (const candidate of one.slice(0, 5)) {
+      assert.equal(candidate.address, address);
+      assert.equal(candidate.candidate.split(' ')[4], address);
+      assert.equal(candidate.json.candidate, candidate.candidate);
+      assert.deepEqual(candidate.json, candidate.serialized);
+      assert.notEqual(candidate.candidate, candidate.native, 'only readouts should be changed');
+    }
+    assert.equal(one[5].address, '203.0.113.15', 'public reflexive address must remain real');
+    assert.equal(one[5].relatedAddress, address);
+    assert.ok(one[5].candidate.includes('raddr ' + address));
+    await a.page.reload();
+    assert.equal((await rtcAddresses(a.page))[0].address, address);
+    const reopened = await open(SEED_A);
+    try { assert.equal((await rtcAddresses(reopened.page))[0].address, address); }
+    finally { await reopened.context.close(); }
+  } finally { await Promise.all([a.context.close(), b.context.close(), site.context.close()]); }
+});
+
+test('WebRTC legacy profiles retain the native address and serialization', async () => {
+  const opened = await open(null);
+  try {
+    const values = await rtcAddresses(opened.page);
+    assert.equal(values[0].address, '192.168.0.101');
+    assert.equal(values[0].candidate, values[0].native);
+    assert.equal(values[0].json.candidate, values[0].native);
+  } finally { await opened.context.close(); }
+});
+
+test('WebRTC SDP and JSON use the same synthetic address without changing public addresses', async () => {
+  const opened = await open(SEED_A);
+  try {
+    const address = (await rtcAddresses(opened.page))[0].address;
+    const result = await opened.page.evaluate(() => {
+      const sdp = 'v=0\r\nc=IN IP6 fd12:3456::1\r\n'
+        + 'a=candidate:1 1 udp 2122260223 192.168.0.101 50000 typ host\r\n'
+        + 'a=candidate:2 1 udp 1686052607 203.0.113.15 60000 typ srflx raddr 192.168.0.101 rport 50000\r\n';
+      const description = new RTCSessionDescription({ type: 'offer', sdp });
+      return { sdp: description.sdp, json: description.toJSON(), serialized: JSON.parse(JSON.stringify(description)) };
+    });
+    assert.ok(result.sdp.includes('c=IN IP4 ' + address));
+    assert.ok(result.sdp.includes('203.0.113.15'));
+    assert.ok(!result.sdp.includes('192.168.0.101'));
+    assert.ok(!result.sdp.includes('fd12:3456::1'));
+    assert.equal(result.sdp, result.json.sdp);
+    assert.deepEqual(result.json, result.serialized);
+    assert.ok(result.sdp.endsWith('\r\n'));
+  } finally { await opened.context.close(); }
+});
+
+async function gatherRtc(page) {
+  return page.evaluate(async () => {
+    const connection = new RTCPeerConnection({ iceServers: [] });
+    const events = [];
+    connection.addEventListener('icecandidate', event => {
+      if (event.candidate) events.push(event.candidate.toJSON());
+    });
+    connection.createDataChannel('privacy-test');
+    try {
+      const completed = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('ICE gathering timed out')), 15000);
+        connection.addEventListener('icegatheringstatechange', () => {
+          if (connection.iceGatheringState === 'complete') { clearTimeout(timeout); resolve(); }
+        });
+      });
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+      await completed;
+      const stats = await connection.getStats();
+      const nativeStats = await __native.rtcStats.call(connection);
+      const publicStats = Array.from(stats.values()).filter(stat => stat.type === 'local-candidate');
+      const actualStats = Array.from(nativeStats.values()).filter(stat => stat.type === 'local-candidate');
+      const lookup = publicStats.map(stat => stats.get(stat.id));
+      const iteration = [];
+      stats.forEach((value, id, report) => { if (value.type === 'local-candidate') iteration.push({ id, address: value.address, sameReport: report === stats }); });
+      const local = connection.localDescription;
+      const transport = connection.sctp && connection.sctp.transport.iceTransport;
+      return { events, sdp: local.sdp, serialized: local.toJSON().sdp, offer: (await connection.createOffer()).sdp,
+        current: connection.currentLocalDescription && connection.currentLocalDescription.sdp,
+        pending: connection.pendingLocalDescription && connection.pendingLocalDescription.sdp,
+        candidates: transport ? transport.getLocalCandidates().map(value => value.toJSON()) : [], publicStats, actualStats, lookup, iteration };
+    } finally { connection.close(); }
+  });
+}
+
+test('real WebRTC candidate events, SDP, transport and statistics agree on the synthetic address', async () => {
+  const opened = await open(SEED_A);
+  try {
+    const address = (await rtcAddresses(opened.page))[0].address;
+    const result = await gatherRtc(opened.page);
+    assert.ok(result.events.length > 0, 'the browser must generate real ICE candidate events');
+    for (const event of result.events) assert.equal(event.candidate.split(' ')[4], address);
+    assert.equal(result.sdp, result.serialized);
+    for (const sdp of [result.sdp, result.offer, result.current, result.pending].filter(Boolean)) {
+      for (const line of sdp.split('\r\n').filter(line => line.startsWith('a=candidate:'))) {
+        assert.equal(line.split(' ')[4], address);
+      }
+    }
+    for (const candidate of result.candidates) assert.equal(candidate.candidate.split(' ')[4], address);
+    assert.ok(result.publicStats.length > 0, 'statistics must remain a native iterable report');
+    for (const stat of result.publicStats.filter(stat => stat.candidateType === 'host')) assert.equal(stat.address, address);
+    assert.deepEqual(result.publicStats, result.lookup);
+    assert.ok(result.iteration.every(stat => stat.sameReport && stat.address === address));
+    assert.ok(result.actualStats.some(stat => stat.address !== address), 'underlying interfaces must remain unchanged');
+    assert.deepEqual(opened.errors, []);
+  } finally { await opened.context.close(); }
+});
+
+test('WebRTC legacy offer callbacks remain usable', async () => {
+  const opened = await open(SEED_A);
+  try {
+    const result = await opened.page.evaluate(async () => {
+      const connection = new RTCPeerConnection({ iceServers: [] });
+      connection.createDataChannel('callback-test');
+      try {
+        const offer = await new Promise((resolve, reject) => connection.createOffer(resolve, reject));
+        await connection.setLocalDescription(offer);
+        return { type: offer.type, signalingState: connection.signalingState };
+      } finally { connection.close(); }
+    });
+    assert.deepEqual(result, { type: 'offer', signalingState: 'have-local-offer' });
+    assert.deepEqual(opened.errors, []);
   } finally { await opened.context.close(); }
 });
