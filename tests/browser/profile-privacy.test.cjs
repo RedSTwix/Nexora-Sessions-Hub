@@ -9,6 +9,11 @@ const SEED_A = 'a1'.repeat(32);
 const SEED_B = 'b2'.repeat(32);
 const URL_A = 'https://first.example.test/';
 const URL_B = 'https://second.example.test/';
+const REDUCED_AGENT = {
+  userAgent: 'Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/156.0.0.0 Mobile Safari/537.36',
+  major: '156', fullVersion: '156.0.0.0', mobile: true,
+  brands: [{ brand: 'Android WebView', version: '156' }, { brand: 'Chromium', version: '156' }]
+};
 const captureNative = `globalThis.__native = {
   read: CanvasRenderingContext2D.prototype.getImageData,
   dataUrl: HTMLCanvasElement.prototype.toDataURL,
@@ -16,7 +21,11 @@ const captureNative = `globalThis.__native = {
   memory: navigator.deviceMemory,
   gl: globalThis.WebGLRenderingContext && WebGLRenderingContext.prototype.getParameter,
   rtcCandidate: globalThis.RTCIceCandidate && Object.getOwnPropertyDescriptor(RTCIceCandidate.prototype, 'candidate').get,
-  rtcStats: globalThis.RTCPeerConnection && RTCPeerConnection.prototype.getStats
+  rtcStats: globalThis.RTCPeerConnection && RTCPeerConnection.prototype.getStats,
+  userAgent: navigator.userAgent,
+  appVersion: navigator.appVersion,
+  platform: navigator.platform,
+  highEntropy: navigator.userAgentData && navigator.userAgentData.getHighEntropyValues
 };`;
 let browser;
 
@@ -29,18 +38,35 @@ before(async () => {
 });
 after(async () => { if (browser) await browser.close(); });
 
-async function open(seed, url = URL_A) {
-  const context = await browser.newContext();
-  await context.route('**/*', route => route.fulfill({
+async function open(seed, url = URL_A, agent = null) {
+  const context = await browser.newContext(agent ? { userAgent: agent.userAgent } : {});
+  const requests = [];
+  await context.route('**/*', async route => {
+    requests.push({ url: route.request().url(), headers: await route.request().allHeaders() });
+    return route.fulfill({
     contentType: 'text/html',
+    headers: agent ? { 'Accept-CH': 'Sec-CH-UA-Model, Sec-CH-UA-Arch, Sec-CH-UA-Bitness, Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version, Sec-CH-UA-Full-Version-List' } : {},
     body: '<!doctype html><script>window.earlyHardware = navigator.hardwareConcurrency;</script><title>Privacy fixture</title>'
-  }));
-  await context.addInitScript({ content: captureNative + (seed ? script.replace('__NEXORA_PROFILE_SEED__', seed) : '') });
+    });
+  });
+  await context.addInitScript({ content: captureNative + (seed ? script
+    .replace('__NEXORA_PROFILE_SEED__', seed).replace('__NEXORA_USER_AGENT_CONFIG__', JSON.stringify(agent)) : '') });
   const page = await context.newPage();
+  if (agent) {
+    const session = await context.newCDPSession(page);
+    await session.send('Emulation.setUserAgentOverride', {
+      userAgent: agent.userAgent, platform: 'Linux',
+      userAgentMetadata: {
+        brands: agent.brands, fullVersionList: agent.brands.map(value => ({ brand: value.brand, version: agent.fullVersion })),
+        fullVersion: agent.fullVersion, platform: 'Android', platformVersion: '10.0.0',
+        architecture: '', model: '', bitness: '', mobile: agent.mobile, wow64: false
+      }
+    });
+  }
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(url);
-  return { context, page, errors };
+  return { context, page, errors, requests };
 }
 
 async function canvasSnapshot(page) {
@@ -395,5 +421,66 @@ test('WebRTC legacy offer callbacks remain usable', async () => {
     });
     assert.deepEqual(result, { type: 'offer', signalingState: 'have-local-offer' });
     assert.deepEqual(opened.errors, []);
+  } finally { await opened.context.close(); }
+});
+
+async function agentSnapshot(page) {
+  return page.evaluate(async () => {
+    const hints = ['architecture', 'bitness', 'model', 'platformVersion', 'uaFullVersion', 'fullVersionList', 'wow64'];
+    return { userAgent: navigator.userAgent, appVersion: navigator.appVersion, platform: navigator.platform,
+      low: navigator.userAgentData.toJSON(), high: await navigator.userAgentData.getHighEntropyValues(hints),
+      nativeHigh: await __native.highEntropy.call(navigator.userAgentData, hints),
+      nativeUserAgent: __native.userAgent };
+  });
+}
+
+test('reduced navigator fields and native Client Hints agree without model, build or architecture', async () => {
+  const opened = await open(SEED_A, URL_A, REDUCED_AGENT);
+  try {
+    const snapshot = await agentSnapshot(opened.page);
+    assert.equal(snapshot.userAgent, REDUCED_AGENT.userAgent);
+    assert.equal(snapshot.nativeUserAgent, REDUCED_AGENT.userAgent);
+    assert.equal(snapshot.appVersion, REDUCED_AGENT.userAgent.substring(8));
+    assert.equal(snapshot.platform, 'Linux');
+    assert.deepEqual(snapshot.low, { brands: REDUCED_AGENT.brands, mobile: true, platform: 'Android' });
+    for (const hint of ['model', 'architecture', 'bitness']) {
+      assert.equal(snapshot.high[hint], '');
+      assert.equal(snapshot.nativeHigh[hint], '');
+    }
+    assert.equal(snapshot.high.platformVersion, '10.0.0');
+    assert.equal(snapshot.nativeHigh.platformVersion, '10.0.0');
+    assert.equal(snapshot.high.uaFullVersion, REDUCED_AGENT.fullVersion);
+    assert.ok(snapshot.high.fullVersionList.every(value => value.version === REDUCED_AGENT.fullVersion));
+    const first = JSON.stringify(snapshot.high);
+    await opened.page.reload();
+    assert.equal(JSON.stringify((await agentSnapshot(opened.page)).high), first);
+    assert.deepEqual(opened.errors, []);
+  } finally { await opened.context.close(); }
+});
+
+test('HTTP navigation, fetch and high-entropy Client Hints use the reduced identity', async () => {
+  const opened = await open(SEED_A, URL_A, REDUCED_AGENT);
+  try {
+    await opened.page.evaluate(() => fetch('/client-hints-probe', { cache: 'no-store' }));
+    const navigation = opened.requests.find(request => request.url === URL_A);
+    const probe = opened.requests.find(request => request.url.endsWith('/client-hints-probe'));
+    assert.equal(navigation.headers['user-agent'], REDUCED_AGENT.userAgent);
+    assert.equal(probe.headers['user-agent'], REDUCED_AGENT.userAgent);
+    assert.equal(probe.headers['sec-ch-ua-platform'], '"Android"');
+    assert.equal(probe.headers['sec-ch-ua-platform-version'], '"10.0.0"');
+    assert.equal(probe.headers['sec-ch-ua-model'], '""');
+    assert.equal(probe.headers['sec-ch-ua-arch'], '""');
+    assert.equal(probe.headers['sec-ch-ua-bitness'], '""');
+    assert.equal(probe.headers['sec-ch-ua-full-version'], '"156.0.0.0"');
+    assert.ok(probe.headers['sec-ch-ua-full-version-list'].includes('156.0.0.0'));
+  } finally { await opened.context.close(); }
+});
+
+test('legacy profiles keep their original navigator identity', async () => {
+  const opened = await open(null);
+  try {
+    const unchanged = await opened.page.evaluate(() => navigator.userAgent === __native.userAgent
+      && navigator.appVersion === __native.appVersion && navigator.platform === __native.platform);
+    assert.equal(unchanged, true);
   } finally { await opened.context.close(); }
 });

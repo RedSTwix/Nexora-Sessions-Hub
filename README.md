@@ -56,7 +56,7 @@ a informações genéricas. A geolocalização precisa é bloqueada para esses n
 escudo no navegador informa se a proteção está ativa, indisponível ou se o perfil é anterior à mudança.
 
 Essa é uma proteção parcial no contexto JavaScript dos documentos. Workers, OffscreenCanvas,
-características de rede/TLS, fontes, tela, idioma, fuso horário, sistema e User-Agent continuam reais.
+características de rede/TLS, fontes, tela, idioma e fuso horário podem continuar expondo dados reais.
 Canvas muito grandes e alguns caminhos de leitura de áudio não são modificados; imagens exportadas
 por Canvas podem ter pequenas variações de pixels. Não há VPN, proxy ou mudança de IP. Cada site
 calcula sua própria fingerprint, e a diferenciação não impede todas as correlações entre perfis.
@@ -70,6 +70,18 @@ Essa alteração de metadados JavaScript não muda interfaces, rotas ou o IP pú
 endereços ainda podem ser descobertos por caminhos não cobertos. A sinalização de endereços
 fictícios pode impedir chamadas e conexões de dados WebRTC. Perfis anteriores sem identidade não
 recebem essa alteração.
+
+A partir da 0.7.3, perfis com identidade usam um User-Agent Android reduzido: modelo e build são
+removidos, e a versão do Chromium é limitada ao número principal real. `Android 10; K` é uma
+identificação genérica, não uma mudança no sistema do aparelho. O marcador `wv` continua presente.
+A configuração é aplicada no WebView antes da navegação e dos pop-ups, tanto ao cabeçalho HTTP
+quanto aos metadados de Client Hints quando a API correspondente é suportada. As leituras de
+`navigator.userAgent`, `appVersion`, `platform` e `userAgentData` nos documentos são alinhadas:
+modelo, arquitetura e bitness ficam vazios nos Client Hints, e a plataforma JavaScript é `Linux`
+sem arquitetura. Versões de WebView sem a API de metadados usam a redução nativa do User-Agent
+e a proteção JavaScript disponível; nem toda interface ou contexto do motor pode ser controlado.
+Não é inventado um modelo de aparelho diferente para cada conta, e a identificação de WebView
+é mantida. Perfis anteriores sem identidade não recebem a redução.
 
 - Cookies e armazenamento web permanecem no perfil privado do Android WebView.
 - O aplicativo não armazena senhas em arquivos próprios.
@@ -174,8 +186,8 @@ Nexora-Sessions-Hub/
 
 ## Limitações
 
-Alguns provedores recusam autenticação dentro de WebViews. O projeto não tenta contornar políticas
-do provedor por alteração de `User-Agent` ou mecanismos equivalentes.
+Alguns provedores recusam autenticação dentro de WebViews. A redução do User-Agent mantém a
+identificação de Android WebView; as restrições de autenticação desses provedores continuam se aplicando.
 
 ## Licença
 

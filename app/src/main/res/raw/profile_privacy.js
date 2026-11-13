@@ -19,6 +19,59 @@
         return value >>> 0;
     };
 
+    // Native WebSettings supplies the same reduced UA and Client Hints on HTTP requests.
+    const agent = __NEXORA_USER_AGENT_CONFIG__;
+    if (agent) {
+        for (const [name, value] of [['userAgent', agent.userAgent],
+            ['appVersion', agent.userAgent.substring(8)], ['platform', 'Linux']]) {
+            try {
+                const prototype = Object.getPrototypeOf(navigator);
+                const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+                if (!descriptor || !descriptor.get || !descriptor.configurable) continue;
+                const read = descriptor.get;
+                Object.defineProperty(prototype, name, {
+                    ...descriptor, get() { Reflect.apply(read, this, []); return value; }
+                });
+            } catch (_) { /* Keep unsupported navigator fields unchanged. */ }
+        }
+        try {
+            const data = navigator.userAgentData;
+            if (data) {
+                const prototype = Object.getPrototypeOf(data);
+                const brands = () => agent.brands.map(value => ({ ...value }));
+                for (const [name, value] of [['brands', brands], ['mobile', () => agent.mobile], ['platform', () => 'Android']]) {
+                    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+                    if (!descriptor || !descriptor.get || !descriptor.configurable) continue;
+                    const read = descriptor.get;
+                    Object.defineProperty(prototype, name, {
+                        ...descriptor, get() { Reflect.apply(read, this, []); return value(); }
+                    });
+                }
+                const original = prototype.getHighEntropyValues;
+                if (original) prototype.getHighEntropyValues = function (...args) {
+                    return Reflect.apply(original, this, args).then(value => {
+                        const reduced = { ...value, brands: brands(), mobile: agent.mobile, platform: 'Android' };
+                        const highEntropy = {
+                            architecture: '', bitness: '', model: '', platformVersion: '10.0.0',
+                            uaFullVersion: agent.fullVersion, wow64: false,
+                            fullVersionList: agent.brands.map(value => ({ brand: value.brand, version: agent.fullVersion })),
+                            formFactors: [agent.mobile ? 'Mobile' : 'Tablet']
+                        };
+                        for (const name of Object.keys(highEntropy)) {
+                            if (Object.prototype.hasOwnProperty.call(value, name)) reduced[name] = highEntropy[name];
+                        }
+                        return reduced;
+                    });
+                };
+                const originalJson = prototype.toJSON;
+                if (originalJson) prototype.toJSON = function (...args) {
+                    Reflect.apply(originalJson, this, args);
+                    return { brands: brands(), mobile: agent.mobile, platform: 'Android' };
+                };
+            }
+        } catch (_) { /* UA Client Hints is optional and remains subject to browser permission policy. */ }
+    }
+
     // Synthetic private IPv4 for WebRTC readouts, stable for this profile and origin.
     // This masks JavaScript metadata; it does not alter interfaces, routing or the public IP.
     const addressKey = number('webrtc-local-address');
