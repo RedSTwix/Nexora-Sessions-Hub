@@ -21,6 +21,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.CookieManager;
+import android.webkit.ValueCallback;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -53,6 +54,7 @@ public final class BrowserActivity extends Activity {
 
     private WebView webView;
     private WebView popupWebView;
+    private WebFileChooser fileChooser;
     private FrameLayout browserContainer;
     private EditText address;
     private ProgressBar progress;
@@ -80,6 +82,7 @@ public final class BrowserActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        fileChooser = new WebFileChooser(this);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             backInvokedCallback = this::handleBackNavigation;
@@ -131,6 +134,7 @@ public final class BrowserActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (fileChooser != null) fileChooser.cancel();
         closePopup();
         flushCookies();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backInvokedCallback != null) {
@@ -153,6 +157,12 @@ public final class BrowserActivity extends Activity {
     protected void onPause() {
         flushCookies();
         super.onPause();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (fileChooser != null && fileChooser.onResult(requestCode, resultCode, data)) return;
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @SuppressLint("GestureBackNavigation")
@@ -345,6 +355,7 @@ public final class BrowserActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView webView, String url, Bitmap favicon) {
+                fileChooser.cancelFor(webView);
                 if (webView == activeWebView()) address.setText(url);
             }
 
@@ -363,6 +374,11 @@ public final class BrowserActivity extends Activity {
         });
 
         view.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                return fileChooser.show(webView, callback, params);
+            }
+
             @Override
             public boolean onCreateWindow(WebView parent, boolean isDialog,
                                           boolean isUserGesture, Message resultMsg) {
@@ -416,6 +432,7 @@ public final class BrowserActivity extends Activity {
     private void closePopup() {
         if (popupWebView == null) return;
         WebView popup = popupWebView;
+        if (fileChooser != null) fileChooser.cancelFor(popup);
         popupWebView = null;
         if (browserContainer != null) browserContainer.removeView(popup);
         popup.stopLoading();

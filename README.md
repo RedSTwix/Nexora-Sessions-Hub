@@ -14,6 +14,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Seleção múltipla** — mova várias contas ou reorganize grupos preservando a ordem relativa.
 - **Indicadores de disponibilidade** — marque contas utilizadas por um período configurável.
 - **Autenticação direcionada** — escolha a pasta e a conta quando outro aplicativo abrir um login.
+- **Arquivos nos sites** — selecione arquivos pelo seletor do Android, incluindo seleção múltipla quando solicitada pelo site.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
 
@@ -44,6 +45,9 @@ O card com o símbolo **+** ocupa toda a largura da tela e acompanha o contexto:
 isolada que abre no Google. O aplicativo não utiliza serviços de Acessibilidade.
 
 ## Privacidade e dados locais
+
+Os sites podem solicitar arquivos pelo seletor do Android. Somente os arquivos escolhidos são
+entregues à página; cancelar a seleção não envia arquivos. O app não pede acesso geral ao armazenamento.
 
 Contas criadas a partir da versão 0.7.0 recebem uma identidade aleatória persistente. Ela é mantida
 ao reabrir, renomear ou mover a conta. Contas anteriores continuam sem essa proteção adicional:

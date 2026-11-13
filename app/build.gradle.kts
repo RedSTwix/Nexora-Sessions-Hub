@@ -21,8 +21,8 @@ android {
         applicationId = "com.rafael.groksessions"
         minSdk = 24
         targetSdk = 36
-        versionCode = 36
-        versionName = "0.7.4"
+        versionCode = 37
+        versionName = "0.7.5"
     }
 
     signingConfigs {
@@ -63,4 +63,5 @@ dependencies {
     implementation("androidx.webkit:webkit:1.17.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+    testImplementation("org.robolectric:robolectric:4.16.1")
 }
