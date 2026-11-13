@@ -16,6 +16,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Autenticação direcionada** — escolha a pasta e a conta quando outro aplicativo abrir um login.
 - **Arquivos nos sites** — selecione arquivos pelo seletor do Android, incluindo seleção múltipla quando solicitada pelo site.
 - **Download de arquivos** — links HTTP(S) são baixados para Downloads pelo gerenciador do Android, usando os cookies do perfil da conta.
+- **Arquivos temporários dos sites** — downloads `blob:` são salvos com progresso e cancelamento, incluindo vídeos do Vidogrid e dos controles HTML5.
 - **Vídeos em tela cheia** — fullscreen HTML5 no navegador e nos pop-ups, com saída pelo botão Voltar.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
@@ -205,9 +206,17 @@ Nexora-Sessions-Hub/
 
 ## Limitações
 
-Downloads iniciados por URLs `blob:` ou `data:` não são enviados ao DownloadManager do Android:
-exigem tratamento de dados da página, não implementado nesta versão. Downloads HTTP(S) com
-cookies do perfil são suportados; alguns sites podem exigir mecanismos adicionais próprios.
+Downloads `blob:` da página principal são transferidos em blocos e gravados em Downloads no
+Android 10 ou superior. No Android 7–9, o seletor do sistema solicita o destino. O WebView precisa
+suportar mensagens JavaScript e scripts no início do documento. O app identifica assinaturas de
+MP4/MOV, WebM, PNG, JPEG e PDF para corrigir nomes genéricos ou terminados em `.bin`. Em links HTTP(S)
+sem tipo definido, consulta no máximo 64 bytes antes de iniciar o download normal com os cookies do
+perfil; a consulta não segue redirecionamentos. Downloads `blob:` têm limite de 1 GB por arquivo,
+dependem da página aberta e são cancelados ao navegar ou fechar o perfil. Arquivos incompletos são
+removidos. A página pode manter o arquivo em memória; o app recebe blocos de no máximo 64 KB com
+confirmação entre eles. Não são solicitadas novas permissões de armazenamento nos Androids recentes.
+URLs `data:`, blobs em subframes e mídia segmentada/DRM não são tratados por esse fluxo. Downloads
+HTTP(S) com cookies do perfil continuam suportados; alguns sites podem exigir mecanismos próprios.
 
 Alguns provedores recusam autenticação dentro de WebViews. A redução do User-Agent mantém a
 identificação de Android WebView; as restrições de autenticação desses provedores continuam se aplicando.

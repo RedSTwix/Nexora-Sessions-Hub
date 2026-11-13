@@ -143,6 +143,7 @@ public final class BrowserActivity extends Activity {
     @Override
     protected void onDestroy() {
         exitFullscreen(true);
+        if (browserDownloads != null) browserDownloads.close();
         if (fileChooser != null) fileChooser.cancel();
         closePopup();
         flushCookies();
@@ -170,6 +171,7 @@ public final class BrowserActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (browserDownloads != null && browserDownloads.onActivityResult(requestCode, resultCode, data)) return;
         if (fileChooser != null && fileChooser.onResult(requestCode, resultCode, data)) return;
         super.onActivityResult(requestCode, resultCode, data);
     }
@@ -363,6 +365,7 @@ public final class BrowserActivity extends Activity {
 
         view.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
                 browserDownloads.download(view, url, userAgent, contentDisposition, mimeType));
+        browserDownloads.attach(view);
 
         view.setWebViewClient(new WebViewClient() {
             @Override
@@ -377,6 +380,7 @@ public final class BrowserActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView webView, String url, Bitmap favicon) {
+                browserDownloads.cancelFor(webView);
                 fileChooser.cancelFor(webView);
                 if (webView == activeWebView()) address.setText(url);
             }
@@ -509,6 +513,7 @@ public final class BrowserActivity extends Activity {
         if (popupWebView == null) return;
         if (fullscreenView != null) exitFullscreen(true);
         WebView popup = popupWebView;
+        if (browserDownloads != null) browserDownloads.cancelFor(popup);
         if (fileChooser != null) fileChooser.cancelFor(popup);
         popupWebView = null;
         if (browserContainer != null) browserContainer.removeView(popup);

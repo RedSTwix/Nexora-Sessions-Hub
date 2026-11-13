@@ -4,30 +4,52 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
-import android.webkit.URLUtil;
 import android.webkit.WebView;
 import android.widget.Toast;
 
 import androidx.webkit.WebViewCompat;
 
+import org.json.JSONObject;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 /** Browser downloads must use the triggering WebView's cookies, not the default WebView profile. */
 final class BrowserDownloads {
     private static final int STORAGE_PERMISSION_REQUEST = 0x6601;
     private final Activity activity;
+    private final BlobDownloads blobs;
+    private final ExecutorService metadata = Executors.newSingleThreadExecutor();
+    private boolean closed;
     private Pending pending;
     private int sequence;
 
     BrowserDownloads(Activity activity) {
         this.activity = activity;
+        blobs = new BlobDownloads(activity);
     }
+
+    void attach(WebView source) { blobs.attach(source); }
+    void cancelFor(WebView source) { blobs.cancelFor(source); }
+    void close() { closed = true; blobs.close(); metadata.shutdownNow(); pending = null; }
+    boolean onActivityResult(int code, int result, Intent data) { return blobs.onActivityResult(code, result, data); }
 
     void download(WebView source, String url, String userAgent, String disposition, String mimeType) {
         Uri uri = url == null ? null : Uri.parse(url);
         String scheme = uri == null ? null : uri.getScheme();
+        if ("blob".equalsIgnoreCase(scheme)) {
+            source.evaluateJavascript("(function(){if(!window.__nexoraSaveBlob)return false;window.__nexoraSaveBlob("
+                    + JSONObject.quote(url) + ",\"video\");return true;})()", supported -> {
+                if (!"true".equals(supported)) Toast.makeText(activity,
+                        "Atualize o Android System WebView para baixar arquivos temporários deste site.", Toast.LENGTH_LONG).show();
+            });
+            return;
+        }
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
             Toast.makeText(activity, "Este site usa um tipo de download que o Android não suporta diretamente.",
                     Toast.LENGTH_LONG).show();
@@ -63,26 +85,38 @@ final class BrowserDownloads {
     }
 
     private void enqueue(Pending pending) {
+        if (closed) return;
+        try {
+            String cookies = WebViewCompat.getProfile(pending.source).getCookieManager().getCookie(pending.url);
+            String mime = DownloadFileNames.mediaType(pending.mimeType, pending.url);
+            if (mime.equals("application/octet-stream") || mime.equals("binary/octet-stream")) {
+                Toast.makeText(activity, "Preparando download…", Toast.LENGTH_SHORT).show();
+                metadata.execute(() -> {
+                    String detected = DownloadMimeProbe.inspect(pending.url, pending.userAgent, cookies, mime);
+                    activity.runOnUiThread(() -> { if (!closed) enqueueResolved(pending, cookies, detected); });
+                });
+            } else enqueueResolved(pending, cookies, mime);
+        } catch (RuntimeException exception) {
+            Toast.makeText(activity, "Não foi possível iniciar o download deste arquivo.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void enqueueResolved(Pending pending, String cookies, String mimeType) {
         try {
             DownloadManager downloads = (DownloadManager)
                     activity.getSystemService(Context.DOWNLOAD_SERVICE);
             if (downloads == null) throw new IllegalStateException("DownloadManager indisponível");
-            String guessed = URLUtil.guessFileName(pending.url, pending.disposition, pending.mimeType);
-            String filename = uniqueName(safeName(guessed));
+            String filename = uniqueName(DownloadFileNames.choose(pending.url, pending.disposition, mimeType));
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(pending.url))
                     .setTitle(filename)
                     .setDescription("Nexora Sessions Hub")
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
-            if (pending.mimeType != null && !pending.mimeType.isEmpty()) {
-                request.setMimeType(pending.mimeType);
-            }
+            request.setMimeType(mimeType);
             if (pending.userAgent != null && !pending.userAgent.isEmpty()) {
                 request.addRequestHeader("User-Agent", headerValue(pending.userAgent));
             }
             // A profile-specific cookie jar is essential: profiles cannot share login cookies.
-            String cookies = WebViewCompat.getProfile(pending.source)
-                    .getCookieManager().getCookie(pending.url);
             if (cookies != null && !cookies.isEmpty()) {
                 request.addRequestHeader("Cookie", headerValue(cookies));
             }
