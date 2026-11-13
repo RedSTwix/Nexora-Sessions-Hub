@@ -18,6 +18,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Download de arquivos** — links HTTP(S) são baixados para Downloads pelo gerenciador do Android, usando os cookies do perfil da conta.
 - **Arquivos temporários dos sites** — downloads `blob:` são salvos com progresso e cancelamento, incluindo vídeos do Vidogrid e dos controles HTML5.
 - **Vídeos em tela cheia** — fullscreen HTML5 no navegador e nos pop-ups, com saída pelo botão Voltar.
+- **Teclado ao navegar** — recolhe ao deslizar fora dos campos de texto, preservando a rolagem dentro de caixas de texto e editores.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
 

@@ -21,8 +21,8 @@ android {
         applicationId = "com.rafael.groksessions"
         minSdk = 24
         targetSdk = 36
-        versionCode = 39
-        versionName = "0.7.7"
+        versionCode = 40
+        versionName = "0.7.8"
     }
 
     signingConfigs {

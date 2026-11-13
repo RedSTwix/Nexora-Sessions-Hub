@@ -2,7 +2,7 @@
   "name": "nexora-browser-privacy-tests",
   "private": true,
   "scripts": {
-    "test": "node --test profile-privacy.test.cjs browser-downloads.test.cjs"
+    "test": "node --test profile-privacy.test.cjs browser-downloads.test.cjs scroll-keyboard.test.cjs"
   },
   "devDependencies": {
     "playwright": "1.65.0"

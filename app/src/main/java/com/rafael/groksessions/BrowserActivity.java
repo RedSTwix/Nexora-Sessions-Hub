@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -21,6 +22,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
 import android.webkit.RenderProcessGoneDetail;
@@ -366,6 +368,12 @@ public final class BrowserActivity extends Activity {
         view.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
                 browserDownloads.download(view, url, userAgent, contentDisposition, mimeType));
         browserDownloads.attach(view);
+        ScrollKeyboard.attach(this, view, () -> {
+            if (view != activeWebView() || !view.hasWindowFocus()) return;
+            address.clearFocus();
+            InputMethodManager keyboard = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        });
 
         view.setWebViewClient(new WebViewClient() {
             @Override
