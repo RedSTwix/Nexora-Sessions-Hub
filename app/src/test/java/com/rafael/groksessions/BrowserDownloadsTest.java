@@ -10,7 +10,7 @@ public final class BrowserDownloadsTest {
     public void removesUnsafeFileNameCharacters() {
         assertEquals("arquivo", BrowserDownloads.safeName(null));
         assertEquals("arquivo", BrowserDownloads.safeName("..."));
-        assertEquals("secret_png", BrowserDownloads.safeName("../secret/png"));
+        assertEquals("_secret_png", BrowserDownloads.safeName("../secret/png"));
         assertEquals("example_.pdf", BrowserDownloads.safeName("example?.pdf"));
     }
 

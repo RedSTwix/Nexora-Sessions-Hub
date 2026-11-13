@@ -14,8 +14,6 @@ import android.widget.Toast;
 
 import androidx.webkit.WebViewCompat;
 
-import java.util.Locale;
-
 /** Browser downloads must use the triggering WebView's cookies, not the default WebView profile. */
 final class BrowserDownloads {
     private static final int STORAGE_PERMISSION_REQUEST = 0x6601;
