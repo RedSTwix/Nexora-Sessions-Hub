@@ -19,6 +19,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
@@ -55,6 +56,12 @@ public final class BrowserActivity extends Activity {
     private WebView webView;
     private WebView popupWebView;
     private WebFileChooser fileChooser;
+    private BrowserDownloads browserDownloads;
+    private View fullscreenView;
+    private FrameLayout fullscreenContainer;
+    private WebChromeClient.CustomViewCallback fullscreenCallback;
+    private int previousSystemUiVisibility;
+    private boolean previouslyFullscreen;
     private FrameLayout browserContainer;
     private EditText address;
     private ProgressBar progress;
@@ -83,6 +90,7 @@ public final class BrowserActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         fileChooser = new WebFileChooser(this);
+        browserDownloads = new BrowserDownloads(this);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             backInvokedCallback = this::handleBackNavigation;
@@ -134,6 +142,7 @@ public final class BrowserActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        exitFullscreen(true);
         if (fileChooser != null) fileChooser.cancel();
         closePopup();
         flushCookies();
@@ -165,6 +174,12 @@ public final class BrowserActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (browserDownloads != null) browserDownloads.onPermissionResult(requestCode, grantResults);
+    }
+
     @SuppressLint("GestureBackNavigation")
     @Override
     public void onBackPressed() {
@@ -172,6 +187,10 @@ public final class BrowserActivity extends Activity {
     }
 
     private void handleBackNavigation() {
+        if (fullscreenView != null) {
+            exitFullscreen(true);
+            return;
+        }
         if (popupWebView != null) {
             closePopup();
             return;
@@ -342,6 +361,9 @@ public final class BrowserActivity extends Activity {
         profileCookies.setAcceptCookie(true);
         profileCookies.setAcceptThirdPartyCookies(view, true);
 
+        view.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                browserDownloads.download(view, url, userAgent, contentDisposition, mimeType));
+
         view.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView webView, String url) {
@@ -374,6 +396,16 @@ public final class BrowserActivity extends Activity {
         });
 
         view.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onShowCustomView(View customView, CustomViewCallback callback) {
+                showFullscreen(customView, callback);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                exitFullscreen(false);
+            }
+
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 return fileChooser.show(webView, callback, params);
@@ -425,12 +457,57 @@ public final class BrowserActivity extends Activity {
         });
     }
 
+    private void showFullscreen(View customView, WebChromeClient.CustomViewCallback callback) {
+        if (customView == null || fullscreenView != null) {
+            if (callback != null) callback.onCustomViewHidden();
+            return;
+        }
+        View decor = getWindow().getDecorView();
+        previousSystemUiVisibility = decor.getSystemUiVisibility();
+        previouslyFullscreen = (getWindow().getAttributes().flags
+                & WindowManager.LayoutParams.FLAG_FULLSCREEN) != 0;
+        fullscreenView = customView;
+        fullscreenCallback = callback;
+        fullscreenContainer = new FrameLayout(this);
+        fullscreenContainer.setBackgroundColor(Color.BLACK);
+        fullscreenContainer.addView(customView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        ((ViewGroup) decor).addView(fullscreenContainer, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        decor.setSystemUiVisibility(previousSystemUiVisibility
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_FULLSCREEN);
+    }
+
+    private void exitFullscreen(boolean notifyPage) {
+        if (fullscreenView == null) return;
+        FrameLayout container = fullscreenContainer;
+        WebChromeClient.CustomViewCallback callback = fullscreenCallback;
+        fullscreenView = null;
+        fullscreenContainer = null;
+        fullscreenCallback = null;
+        if (container != null) {
+            ViewGroup parent = (ViewGroup) container.getParent();
+            if (parent != null) parent.removeView(container);
+            container.removeAllViews();
+        }
+        View decor = getWindow().getDecorView();
+        decor.setSystemUiVisibility(previousSystemUiVisibility);
+        if (!previouslyFullscreen) {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        }
+        if (notifyPage && callback != null) callback.onCustomViewHidden();
+    }
+
     private WebView activeWebView() {
         return popupWebView != null ? popupWebView : webView;
     }
 
     private void closePopup() {
         if (popupWebView == null) return;
+        if (fullscreenView != null) exitFullscreen(true);
         WebView popup = popupWebView;
         if (fileChooser != null) fileChooser.cancelFor(popup);
         popupWebView = null;

@@ -15,6 +15,8 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Indicadores de disponibilidade** — marque contas utilizadas por um período configurável.
 - **Autenticação direcionada** — escolha a pasta e a conta quando outro aplicativo abrir um login.
 - **Arquivos nos sites** — selecione arquivos pelo seletor do Android, incluindo seleção múltipla quando solicitada pelo site.
+- **Download de arquivos** — links HTTP(S) são baixados para Downloads pelo gerenciador do Android, usando os cookies do perfil da conta.
+- **Vídeos em tela cheia** — fullscreen HTML5 no navegador e nos pop-ups, com saída pelo botão Voltar.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
 
@@ -47,7 +49,9 @@ isolada que abre no Google. O aplicativo não utiliza serviços de Acessibilidad
 ## Privacidade e dados locais
 
 Os sites podem solicitar arquivos pelo seletor do Android. Somente os arquivos escolhidos são
-entregues à página; cancelar a seleção não envia arquivos. O app não pede acesso geral ao armazenamento.
+entregues à página; cancelar a seleção não envia arquivos. Em Android 7–9, o download de arquivos
+na pasta pública Downloads requer a permissão legada de armazenamento. Nas versões recentes do
+Android, o download usa o gerenciador do sistema sem acesso geral aos arquivos.
 
 Contas criadas a partir da versão 0.7.0 recebem uma identidade aleatória persistente. Ela é mantida
 ao reabrir, renomear ou mover a conta. Contas anteriores continuam sem essa proteção adicional:
@@ -200,6 +204,10 @@ Nexora-Sessions-Hub/
 ```
 
 ## Limitações
+
+Downloads iniciados por URLs `blob:` ou `data:` não são enviados ao DownloadManager do Android:
+exigem tratamento de dados da página, não implementado nesta versão. Downloads HTTP(S) com
+cookies do perfil são suportados; alguns sites podem exigir mecanismos adicionais próprios.
 
 Alguns provedores recusam autenticação dentro de WebViews. A redução do User-Agent mantém a
 identificação de Android WebView; as restrições de autenticação desses provedores continuam se aplicando.
