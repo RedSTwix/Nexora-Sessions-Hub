@@ -52,7 +52,7 @@
                     return Reflect.apply(original, this, args).then(value => {
                         const reduced = { ...value, brands: brands(), mobile: agent.mobile, platform: 'Android' };
                         const highEntropy = {
-                            architecture: '', bitness: '', model: '', platformVersion: '10.0.0',
+                            architecture: '', bitness: '', model: agent.model || '', platformVersion: agent.platformVersion || '10.0.0',
                             uaFullVersion: agent.fullVersion, wow64: false,
                             fullVersionList: agent.brands.map(value => ({ brand: value.brand, version: agent.fullVersion })),
                             formFactors: [agent.mobile ? 'Mobile' : 'Tablet']

@@ -35,7 +35,7 @@ final class ProfilePrivacy {
             while ((count = stream.read(buffer)) != -1) {
                 output.write(buffer, 0, count);
             }
-            ReducedUserAgent agent = ReducedUserAgent.from(view.getSettings().getUserAgentString());
+            ReducedUserAgent agent = ReducedUserAgent.from(view.getSettings().getUserAgentString(), seed);
             String script = new String(output.toByteArray(), StandardCharsets.UTF_8)
                     .replace("__NEXORA_PROFILE_SEED__", seed)
                     .replace("__NEXORA_USER_AGENT_CONFIG__", agent == null ? "null" : agent.toJson());
@@ -58,7 +58,7 @@ final class ProfilePrivacy {
                 .setBrand("Chromium").setMajorVersion(agent.major).setFullVersion(agent.fullVersion).build();
         WebSettingsCompat.setUserAgentMetadata(settings, new UserAgentMetadata.Builder()
                 .setBrandVersionList(Arrays.asList(webView, chromium)).setFullVersion(agent.fullVersion)
-                .setPlatform("Android").setPlatformVersion("10.0.0").setModel("")
+                .setPlatform("Android").setPlatformVersion(agent.platformVersion).setModel(agent.model)
                 .setArchitecture("").setBitness(0).setMobile(agent.mobile).setWow64(false).build());
     }
 }

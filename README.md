@@ -71,17 +71,28 @@ endereços ainda podem ser descobertos por caminhos não cobertos. A sinalizaç�
 fictícios pode impedir chamadas e conexões de dados WebRTC. Perfis anteriores sem identidade não
 recebem essa alteração.
 
-A partir da 0.7.3, perfis com identidade usam um User-Agent Android reduzido: modelo e build são
-removidos, e a versão do Chromium é limitada ao número principal real. `Android 10; K` é uma
-identificação genérica, não uma mudança no sistema do aparelho. O marcador `wv` continua presente.
+Os perfis com identidade usam um User-Agent Android gerado, sem a build real e com a versão do
+Chromium limitada ao número principal real. O marcador `wv` continua presente. Na versão 0.7.3,
+todos usavam a identificação genérica `Android 10; K`; a seleção por perfil é descrita a seguir.
 A configuração é aplicada no WebView antes da navegação e dos pop-ups, tanto ao cabeçalho HTTP
 quanto aos metadados de Client Hints quando a API correspondente é suportada. As leituras de
 `navigator.userAgent`, `appVersion`, `platform` e `userAgentData` nos documentos são alinhadas:
-modelo, arquitetura e bitness ficam vazios nos Client Hints, e a plataforma JavaScript é `Linux`
-sem arquitetura. Versões de WebView sem a API de metadados usam a redução nativa do User-Agent
+o modelo e a versão Android seguem a combinação escolhida, enquanto arquitetura e bitness ficam
+vazios nos Client Hints e a plataforma JavaScript é `Linux` sem arquitetura. Versões de WebView
+sem a API de metadados usam a redução nativa do User-Agent
 e a proteção JavaScript disponível; nem toda interface ou contexto do motor pode ser controlado.
-Não é inventado um modelo de aparelho diferente para cada conta, e a identificação de WebView
-é mantida. Perfis anteriores sem identidade não recebem a redução.
+A identificação de WebView é mantida. Perfis anteriores sem identidade não recebem a redução.
+
+A partir da 0.7.4, os perfis protegidos de celular selecionam uma combinação fixa do conjunto
+versionado Android 10/Pixel 4, Android 11/Pixel 4a, Android 12/Pixel 6, Android 13/Pixel 7 ou Android
+14/Pixel 8. A escolha é derivada da identidade persistente do perfil, sem variar a cada abertura
+ou site. User-Agent HTTP, JavaScript e Client Hints usam o mesmo modelo e a mesma versão Android
+apresentados. A build real continua omitida e o Chromium mantém sua versão principal real.
+Esse conjunto é finito: perfis distintos podem compartilhar a identificação de navegador, enquanto
+os demais sinais continuam derivados de suas identidades próprias. Tablets mantêm a identificação
+genérica para preservar o formato do dispositivo. Isso altera metadados, sem emular os aparelhos,
+sem mudar o Android real e sem ocultar fontes, tela, fuso horário ou a conexão. Bateria e informações
+da conexão permanecem com o comportamento anterior. Perfis sem identidade não são modificados.
 
 - Cookies e armazenamento web permanecem no perfil privado do Android WebView.
 - O aplicativo não armazena senhas em arquivos próprios.

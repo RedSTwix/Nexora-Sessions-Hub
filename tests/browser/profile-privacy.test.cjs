@@ -11,7 +11,7 @@ const URL_A = 'https://first.example.test/';
 const URL_B = 'https://second.example.test/';
 const REDUCED_AGENT = {
   userAgent: 'Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/156.0.0.0 Mobile Safari/537.36',
-  major: '156', fullVersion: '156.0.0.0', mobile: true,
+  major: '156', fullVersion: '156.0.0.0', mobile: true, model: '', platformVersion: '10.0.0',
   brands: [{ brand: 'Android WebView', version: '156' }, { brand: 'Chromium', version: '156' }]
 };
 const captureNative = `globalThis.__native = {
@@ -58,8 +58,8 @@ async function open(seed, url = URL_A, agent = null) {
       userAgent: agent.userAgent, platform: 'Linux',
       userAgentMetadata: {
         brands: agent.brands, fullVersionList: agent.brands.map(value => ({ brand: value.brand, version: agent.fullVersion })),
-        fullVersion: agent.fullVersion, platform: 'Android', platformVersion: '10.0.0',
-        architecture: '', model: '', bitness: '', mobile: agent.mobile, wow64: false
+        fullVersion: agent.fullVersion, platform: 'Android', platformVersion: agent.platformVersion,
+        architecture: '', model: agent.model, bitness: '', mobile: agent.mobile, wow64: false
       }
     });
   }
@@ -483,4 +483,33 @@ test('legacy profiles keep their original navigator identity', async () => {
       && navigator.appVersion === __native.appVersion && navigator.platform === __native.platform);
     assert.equal(unchanged, true);
   } finally { await opened.context.close(); }
+});
+
+test('profile-specific Android and model pairs agree across HTTP, JavaScript and Client Hints', async () => {
+  const presetA = { ...REDUCED_AGENT, model: 'Pixel 7', platformVersion: '13.0.0',
+    userAgent: REDUCED_AGENT.userAgent.replace('Android 10; K;', 'Android 13; Pixel 7;') };
+  const presetB = { ...REDUCED_AGENT, model: 'Pixel 8', platformVersion: '14.0.0',
+    userAgent: REDUCED_AGENT.userAgent.replace('Android 10; K;', 'Android 14; Pixel 8;') };
+  const a = await open(SEED_A, URL_A, presetA);
+  const b = await open(SEED_B, URL_A, presetB);
+  try {
+    for (const [opened, preset] of [[a, presetA], [b, presetB]]) {
+      const snapshot = await agentSnapshot(opened.page);
+      assert.equal(snapshot.userAgent, preset.userAgent);
+      assert.equal(snapshot.appVersion, preset.userAgent.substring(8));
+      assert.equal(snapshot.high.model, preset.model);
+      assert.equal(snapshot.nativeHigh.model, preset.model);
+      assert.equal(snapshot.high.platformVersion, preset.platformVersion);
+      assert.equal(snapshot.nativeHigh.platformVersion, preset.platformVersion);
+      await opened.page.evaluate(() => fetch('/profile-identity-probe', { cache: 'no-store' }));
+      const probe = opened.requests.find(request => request.url.endsWith('/profile-identity-probe'));
+      assert.equal(probe.headers['user-agent'], preset.userAgent);
+      assert.equal(probe.headers['sec-ch-ua-model'], JSON.stringify(preset.model));
+      assert.equal(probe.headers['sec-ch-ua-platform-version'], JSON.stringify(preset.platformVersion));
+      await opened.page.reload();
+      assert.equal((await agentSnapshot(opened.page)).high.model, preset.model);
+      assert.deepEqual(opened.errors, []);
+    }
+    assert.notEqual((await agentSnapshot(a.page)).userAgent, (await agentSnapshot(b.page)).userAgent);
+  } finally { await Promise.all([a.context.close(), b.context.close()]); }
 });

@@ -49,4 +49,34 @@ public final class ReducedUserAgentTest {
         assertNull(ReducedUserAgent.from("Unknown Android WebView"));
         assertNull(ReducedUserAgent.from("Mozilla/5.0 Chrome/156.0.8078.47"));
     }
+
+    @Test public void profileSeedsSelectStableCoherentAndroidAndModelPairs() throws Exception {
+        String[] versions = {"10", "11", "12", "13", "14"};
+        String[] models = {"Pixel 4", "Pixel 4a", "Pixel 6", "Pixel 7", "Pixel 8"};
+        for (int i = 0; i < versions.length; i++) {
+            String seed = String.format(java.util.Locale.ROOT, "%08x", i) + "a1".repeat(28);
+            ReducedUserAgent first = ReducedUserAgent.from(ORIGINAL, seed);
+            ReducedUserAgent reopened = ReducedUserAgent.from(ORIGINAL, seed);
+            ReducedUserAgent updatedEngine = ReducedUserAgent.from(ORIGINAL.replace("Chrome/156.", "Chrome/157."), seed);
+            assertEquals(versions[i], first.androidVersion);
+            assertEquals(models[i], first.model);
+            assertEquals(first.userAgent, reopened.userAgent);
+            assertEquals(first.model, updatedEngine.model);
+            assertEquals(first.platformVersion, updatedEngine.platformVersion);
+            assertTrue(first.userAgent.contains("Android " + versions[i] + "; " + models[i] + "; wv"));
+            assertTrue(first.userAgent.contains("Chrome/156.0.0.0"));
+            assertFalse(first.userAgent.contains("Build/"));
+            assertFalse(first.userAgent.contains("22111317PG"));
+            JSONObject metadata = new JSONObject(first.toJson());
+            assertEquals(models[i], metadata.getString("model"));
+            assertEquals(versions[i] + ".0.0", metadata.getString("platformVersion"));
+        }
+    }
+
+    @Test public void phonePresetsDoNotChangeTabletFormFactor() {
+        ReducedUserAgent tablet = ReducedUserAgent.from(ORIGINAL.replace(" Mobile", ""), "a1".repeat(32));
+        assertFalse(tablet.mobile);
+        assertEquals("", tablet.model);
+        assertTrue(tablet.userAgent.contains("Android 10; K; wv"));
+    }
 }
