@@ -16,6 +16,8 @@ import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Browser;
 import android.text.InputType;
 import android.view.Gravity;
@@ -41,6 +43,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.lang.ref.WeakReference;
+import java.util.Iterator;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_AUTH_BROWSER = 4001;
@@ -79,6 +83,14 @@ public final class MainActivity extends Activity {
     private boolean selectionMode;
     private final Set<String> selectedAccountIds = new HashSet<>();
     private final Set<String> organizeSelectedItemIds = new HashSet<>();
+    private final Handler availabilityHandler = new Handler(Looper.getMainLooper());
+    private final List<AvailabilityIndicator> availabilityIndicators = new ArrayList<>();
+    private final Runnable availabilityRefresh = new Runnable() {
+        @Override public void run() {
+            refreshAvailabilityIndicators();
+            availabilityHandler.postDelayed(this, 60000);
+        }
+    };
 
     private static final int COLOR_PAGE = Color.rgb(3, 11, 17);
     private static final int COLOR_SURFACE = Color.rgb(10, 23, 33);
@@ -107,6 +119,8 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         renderContent();
+        availabilityHandler.removeCallbacks(availabilityRefresh);
+        availabilityHandler.post(availabilityRefresh);
         if (pendingUrl != null && !externalIntentHandled) {
             externalIntentHandled = true;
             chooseAccountFor(pendingUrl);
@@ -116,12 +130,15 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        availabilityHandler.removeCallbacks(availabilityRefresh);
         updater.onPause();
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        availabilityHandler.removeCallbacks(availabilityRefresh);
+        availabilityIndicators.clear();
         updater.close();
         if (updateDialog != null) {
             updateDialog.dismiss();
@@ -381,7 +398,7 @@ public final class MainActivity extends Activity {
         primaryActionSubtitle.setText(R.string.create_folder_hint);
         primaryAction.setContentDescription(getString(R.string.create_folder_action));
         sectionTitle.setText(R.string.account_folders_title);
-        sectionSubtitle.setText(R.string.account_folders_description);
+        sectionSubtitle.setText(getString(R.string.account_folders_description) + "\nIndicador: Perfil usado");
         List<AccountFolder> folders = repository.getFolders();
         if (organizeMode && !folders.isEmpty()) {
             addManagerHint("Toque para selecionar. As setas movem todos os cards verdes juntos.");
@@ -404,7 +421,7 @@ public final class MainActivity extends Activity {
         primaryActionSubtitle.setText(R.string.create_account_hint);
         primaryAction.setContentDescription(getString(R.string.create_account_action));
         sectionTitle.setText(selectedFolder.name);
-        sectionSubtitle.setText(R.string.folder_accounts_description);
+        sectionSubtitle.setText(getString(R.string.folder_accounts_description) + "\nIndicador: Perfil usado");
 
         Button backToFolders = compactButton("‹  Voltar às pastas");
         backToFolders.setOnClickListener(view -> leaveFolder());
@@ -485,6 +502,7 @@ public final class MainActivity extends Activity {
         copy.addView(text(details, 12, pinned ? accent : COLOR_MUTED), matchWrap());
         summary.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        addAvailabilityIndicator(summary, folder.id, null, AvailabilityMode.PROFILE_USED);
         if (organizeMode) {
             Set<String> moveGroup = organizeMoveGroupFor(folder.id);
             summary.addView(createReorderControls(
@@ -562,6 +580,7 @@ public final class MainActivity extends Activity {
         ), matchWrap());
         summary.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        addAvailabilityIndicator(summary, account.folderId, account.id, AvailabilityMode.PROFILE_USED);
         if (organizeMode) {
             Set<String> moveGroup = organizeMoveGroupFor(account.id);
             summary.addView(createReorderControls(
@@ -1032,7 +1051,7 @@ public final class MainActivity extends Activity {
         List<AccountFolder> folders = repository.getFolders();
         Dialog dialog = createNexoraPickerDialog();
         LinearLayout panel = createPickerPanel();
-        addPickerHeader(panel, "▱", "Escolha a pasta", "Selecione a pasta para continuar", null, null);
+        addPickerHeader(panel, "▱", "Escolha a pasta", "Indicador: Aberto com · Selecione a pasta", null, null);
 
         ScrollView listScroll = createPickerScroll();
         LinearLayout list = createPickerList();
@@ -1072,7 +1091,6 @@ public final class MainActivity extends Activity {
                 view -> dialog.dismiss()
         );
 
-        Set<String> enabledFolders = new HashSet<>(repository.getAvailabilityEnabledFolderIds());
         ScrollView scroll = createPickerScroll();
         LinearLayout content = createPickerList();
 
@@ -1094,6 +1112,52 @@ public final class MainActivity extends Activity {
         updateCardParams.setMargins(0, 0, 0, dp(16));
         content.addView(updateCard, updateCardParams);
 
+        for (AvailabilityMode mode : AvailabilityMode.values()) {
+            LinearLayout modeCard = card();
+            TextView title = text(mode.label, 17, COLOR_TEXT);
+            title.setTypeface(null, Typeface.BOLD);
+            modeCard.addView(title, matchWrap());
+            TextView description = text(mode.description, 12, COLOR_MUTED);
+            description.setPadding(0, dp(6), 0, dp(8));
+            modeCard.addView(description, matchWrap());
+            int controlledFolders = 0;
+            for (AccountFolder folder : repository.getFolders()) {
+                if (repository.isAvailabilityEnabledForFolder(folder.id, mode)) controlledFolders++;
+            }
+            TextView status = text(repository.getAvailabilityDurationHours(mode) + " horas · "
+                    + controlledFolders + (controlledFolders == 1 ? " pasta controlada" : " pastas controladas"), 12, COLOR_CYAN);
+            modeCard.addView(status, matchWrap());
+            Button configure = compactButton("Configurar " + mode.label);
+            configure.setOnClickListener(view -> {
+                dialog.dismiss();
+                showAvailabilityModeSettings(mode);
+            });
+            LinearLayout.LayoutParams configureParams = matchWrap();
+            configureParams.setMargins(0, dp(12), 0, 0);
+            modeCard.addView(configure, configureParams);
+            LinearLayout.LayoutParams modeParams = matchWrap();
+            modeParams.setMargins(0, 0, 0, dp(14));
+            content.addView(modeCard, modeParams);
+        }
+        scroll.addView(content, matchWrap());
+        panel.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        Button close = compactButton("FECHAR");
+        close.setOnClickListener(view -> dialog.dismiss());
+        panel.addView(close, matchWrap());
+        showNexoraPickerDialog(dialog, panel);
+    }
+
+    private void showAvailabilityModeSettings(AvailabilityMode mode) {
+        Dialog dialog = createNexoraPickerDialog();
+        LinearLayout panel = createPickerPanel();
+        addPickerHeader(panel, "⚙", mode.label, mode.description, "‹", view -> {
+            dialog.dismiss();
+            showAvailabilitySettings();
+        });
+        Set<String> enabledFolders = new HashSet<>(repository.getAvailabilityEnabledFolderIds(mode));
+        ScrollView scroll = createPickerScroll();
+        LinearLayout content = createPickerList();
+
         TextView availabilityTitle = text("DISPONIBILIDADE", 11, COLOR_CYAN);
         availabilityTitle.setTypeface(null, Typeface.BOLD);
         availabilityTitle.setLetterSpacing(0.12f);
@@ -1104,14 +1168,15 @@ public final class MainActivity extends Activity {
         TextView durationLabel = text("Tempo de espera", 15, COLOR_TEXT);
         durationLabel.setTypeface(null, Typeface.BOLD);
         durationCard.addView(durationLabel, matchWrap());
-        TextView durationHint = text("Após abrir uma conta, ela fica indisponível por este período.", 12, COLOR_MUTED);
+        TextView durationHint = text("O indicador deste modo fica vermelho por este período após cada abertura. A conta continua acessível.", 12, COLOR_MUTED);
         durationHint.setPadding(0, dp(3), 0, dp(10));
         durationCard.addView(durationHint, matchWrap());
 
         LinearLayout durationRow = new LinearLayout(this);
         durationRow.setGravity(Gravity.CENTER_VERTICAL);
         EditText hoursInput = new EditText(this);
-        hoursInput.setText(String.valueOf(repository.getAvailabilityDurationHours()));
+        hoursInput.setText(String.valueOf(repository.getAvailabilityDurationHours(mode)));
+        hoursInput.setContentDescription("Tempo de espera de " + mode.label + " em horas");
         hoursInput.setSelectAllOnFocus(true);
         hoursInput.setSingleLine(true);
         hoursInput.setInputType(InputType.TYPE_CLASS_NUMBER);
@@ -1127,7 +1192,7 @@ public final class MainActivity extends Activity {
         durationCard.addView(durationRow, matchWrap());
 
         TextView resetHint = text(
-                "Libera todas as contas e pastas agora. Sessões, logins e cookies não serão alterados.",
+                "Libera os indicadores de “" + mode.label + "”. O outro modo continua com seus próprios tempos.",
                 12,
                 COLOR_MUTED
         );
@@ -1136,14 +1201,14 @@ public final class MainActivity extends Activity {
 
         Button resetIndicators = compactButton("↻  Liberar todos agora");
         resetIndicators.setTextColor(COLOR_CYAN);
-        resetIndicators.setContentDescription("Resetar somente os indicadores de disponibilidade");
+        resetIndicators.setContentDescription("Liberar somente os indicadores de " + mode.label);
         resetIndicators.setOnClickListener(view -> {
-            repository.resetAvailabilityIndicators();
-            dialog.dismiss();
+            repository.resetAvailabilityIndicators(mode);
             renderContent();
+            refreshAvailabilityIndicators();
             Toast.makeText(
                     this,
-                    "Indicadores liberados. Suas sessões foram preservadas.",
+                    mode.label + ": indicadores liberados.",
                     Toast.LENGTH_SHORT
             ).show();
         });
@@ -1177,11 +1242,15 @@ public final class MainActivity extends Activity {
                 hoursInput.setError("Use um valor entre 1 e 720 horas");
                 return;
             }
-            repository.saveAvailabilitySettings(enabledFolders, hours);
+            repository.saveAvailabilitySettings(enabledFolders, hours, mode);
             dialog.dismiss();
             renderContent();
             Toast.makeText(this, "Configurações salvas.", Toast.LENGTH_SHORT).show();
-        }, "CANCELAR", view -> dialog.dismiss());
+            showAvailabilitySettings();
+        }, "VOLTAR", view -> {
+            dialog.dismiss();
+            showAvailabilitySettings();
+        });
         showNexoraPickerDialog(dialog, panel);
     }
 
@@ -1358,7 +1427,7 @@ public final class MainActivity extends Activity {
                 panel,
                 "♙",
                 folder.name + ": escolha a conta",
-                "Selecione uma conta para continuar.",
+                "Indicador: Aberto com · Selecione uma conta.",
                 "×",
                 view -> {
                     dialog.dismiss();
@@ -1371,7 +1440,7 @@ public final class MainActivity extends Activity {
         for (Account account : accounts) {
             list.addView(createAccountPickerRow(account, view -> {
                 dialog.dismiss();
-                openBrowser(account, url);
+                openBrowser(account, url, AvailabilityMode.OPEN_WITH);
             }), pickerRowParams());
         }
         listScroll.addView(list, matchWrap());
@@ -1505,12 +1574,7 @@ public final class MainActivity extends Activity {
         copy.addView(text(count + (count == 1 ? " conta isolada" : " contas isoladas"), 12, COLOR_MUTED), matchWrap());
         row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        if (repository.isAvailabilityEnabledForFolder(folder.id)) {
-            View availability = availabilityDot(repository.hasAvailableAccount(folder.id));
-            LinearLayout.LayoutParams availabilityParams = new LinearLayout.LayoutParams(dp(12), dp(12));
-            availabilityParams.setMargins(0, 0, dp(10), 0);
-            row.addView(availability, availabilityParams);
-        }
+        addAvailabilityIndicator(row, folder.id, null, AvailabilityMode.OPEN_WITH);
 
         TextView arrow = text("›", 34, COLOR_MUTED);
         arrow.setGravity(Gravity.CENTER);
@@ -1537,25 +1601,51 @@ public final class MainActivity extends Activity {
         name.setPadding(dp(12), 0, dp(5), 0);
         row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        if (repository.isAvailabilityEnabledForFolder(account.folderId)) {
-            View availability = availabilityDot(repository.isAccountAvailable(account.id));
-            LinearLayout.LayoutParams availabilityParams = new LinearLayout.LayoutParams(dp(12), dp(12));
-            availabilityParams.setMargins(dp(5), 0, dp(12), 0);
-            row.addView(availability, availabilityParams);
-        }
+        addAvailabilityIndicator(row, account.folderId, account.id, AvailabilityMode.OPEN_WITH);
         return row;
     }
 
-    private View availabilityDot(boolean available) {
+    private void addAvailabilityIndicator(LinearLayout row, String folderId, String accountId, AvailabilityMode mode) {
+        View dot = new View(this);
+        AvailabilityIndicator indicator = new AvailabilityIndicator(dot, folderId, accountId, mode);
+        updateAvailabilityIndicator(indicator, dot);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(12), dp(12));
+        params.setMargins(dp(5), 0, dp(10), 0);
+        row.addView(dot, params);
+        availabilityIndicators.add(indicator);
+    }
+
+    private void refreshAvailabilityIndicators() {
+        Iterator<AvailabilityIndicator> iterator = availabilityIndicators.iterator();
+        while (iterator.hasNext()) {
+            AvailabilityIndicator indicator = iterator.next();
+            View view = indicator.view.get();
+            if (view == null) iterator.remove();
+            else if (view.isAttachedToWindow()) updateAvailabilityIndicator(indicator, view);
+        }
+    }
+
+    private void updateAvailabilityIndicator(AvailabilityIndicator indicator, View view) {
+        boolean enabled = repository.isAvailabilityEnabledForFolder(indicator.folderId, indicator.mode);
+        view.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        if (!enabled) return;
+        boolean available = indicator.accountId == null
+                ? repository.hasAvailableAccount(indicator.folderId, indicator.mode)
+                : repository.isAccountAvailable(indicator.accountId, indicator.mode);
         int color = available ? COLOR_SUCCESS : Color.rgb(255, 36, 77);
-        View availability = new View(this);
-        availability.setContentDescription(
-                available
-                        ? "Disponível"
-                        : "Indisponível por " + repository.getAvailabilityDurationHours() + " horas"
-        );
-        availability.setBackground(roundedBackground(color, 8, withAlpha(Color.WHITE, 180), 1));
-        return availability;
+        view.setContentDescription(indicator.mode.label + (available ? " · Disponível"
+                : " · Em espera por " + repository.getAvailabilityDurationHours(indicator.mode) + " horas"));
+        view.setBackground(roundedBackground(color, 8, withAlpha(Color.WHITE, 180), 1));
+    }
+
+    private static final class AvailabilityIndicator {
+        final WeakReference<View> view;
+        final String folderId, accountId;
+        final AvailabilityMode mode;
+        AvailabilityIndicator(View view, String folderId, String accountId, AvailabilityMode mode) {
+            this.view = new WeakReference<>(view);
+            this.folderId = folderId; this.accountId = accountId; this.mode = mode;
+        }
     }
 
     private TextView createPickerEmpty(String title, String description) {
@@ -1632,7 +1722,8 @@ public final class MainActivity extends Activity {
             Account account = repository.add(name, folder.id);
             dialog.dismiss();
             renderContent();
-            openBrowser(account, urlAfterCreation == null ? BrowserActivity.DEFAULT_URL : urlAfterCreation);
+            openBrowser(account, urlAfterCreation == null ? BrowserActivity.DEFAULT_URL : urlAfterCreation,
+                    urlAfterCreation == null ? AvailabilityMode.PROFILE_USED : AvailabilityMode.OPEN_WITH);
         }));
         dialog.show();
     }
@@ -1743,7 +1834,14 @@ public final class MainActivity extends Activity {
     }
 
     private void openBrowser(Account account, String url) {
-        repository.markAccountUnavailable(account);
+        openBrowser(account, url, AvailabilityMode.PROFILE_USED);
+    }
+
+    private void openBrowser(Account account, String url, AvailabilityMode mode) {
+        if (!supportsProfiles()) {
+            Toast.makeText(this, "Atualize o Android System WebView para usar perfis separados.", Toast.LENGTH_LONG).show();
+            return;
+        }
         Intent intent = new Intent(this, BrowserActivity.class);
         intent.putExtra(BrowserActivity.EXTRA_PROFILE_ID, account.id);
         intent.putExtra(BrowserActivity.EXTRA_PROFILE_NAME, account.name);
@@ -1760,6 +1858,7 @@ public final class MainActivity extends Activity {
         } else {
             startActivity(intent);
         }
+        repository.markAccountUnavailable(account, mode);
         pendingUrl = null;
     }
 

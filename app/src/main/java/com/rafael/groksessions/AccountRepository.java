@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 
 final class AccountRepository {
     private static final String PREFS = "account_manager";
@@ -22,17 +23,20 @@ final class AccountRepository {
     private static final String PINNED_ACCOUNTS = "pinned_accounts";
     private static final String FOLDER_STYLES = "folder_styles";
     private static final String ACCOUNT_UNAVAILABLE_UNTIL = "account_unavailable_until";
-    private static final String ACCOUNT_LAST_USED = "account_last_used";
-    private static final String AVAILABILITY_FOLDERS = "availability_folders";
-    private static final String AVAILABILITY_DURATION_HOURS = "availability_duration_hours";
     private static final int DEFAULT_AVAILABILITY_HOURS = 12;
     private static final String LEGACY_FOLDER_ID = "folder_ccntcache";
     private static final String LEGACY_FOLDER_NAME = "ccntcache";
 
     private final SharedPreferences preferences;
+    private final LongSupplier currentTimeMillis;
 
     AccountRepository(Context context) {
+        this(context, System::currentTimeMillis);
+    }
+
+    AccountRepository(Context context, LongSupplier currentTimeMillis) {
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        this.currentTimeMillis = currentTimeMillis;
         migrateAccountsToFolders();
     }
 
@@ -104,10 +108,12 @@ final class AccountRepository {
         List<AccountFolder> folders = getFolders();
         folders.add(folder);
         saveFolders(folders);
-        if (preferences.contains(AVAILABILITY_FOLDERS)) {
-            Set<String> enabled = getAvailabilityEnabledFolderIds();
-            enabled.add(folder.id);
-            saveStringSet(AVAILABILITY_FOLDERS, enabled);
+        for (AvailabilityMode mode : AvailabilityMode.values()) {
+            if (preferences.contains(mode.foldersKey)) {
+                Set<String> enabled = getAvailabilityEnabledFolderIds(mode);
+                enabled.add(folder.id);
+                saveStringSet(mode.foldersKey, enabled);
+            }
         }
         return folder;
     }
@@ -312,10 +318,12 @@ final class AccountRepository {
         Set<String> pinned = pinnedFolders();
         pinned.remove(folderId);
         saveStringSet(PINNED_FOLDERS, pinned);
-        if (preferences.contains(AVAILABILITY_FOLDERS)) {
-            Set<String> enabled = getAvailabilityEnabledFolderIds();
-            enabled.remove(folderId);
-            saveStringSet(AVAILABILITY_FOLDERS, enabled);
+        for (AvailabilityMode mode : AvailabilityMode.values()) {
+            if (preferences.contains(mode.foldersKey)) {
+                Set<String> enabled = getAvailabilityEnabledFolderIds(mode);
+                enabled.remove(folderId);
+                saveStringSet(mode.foldersKey, enabled);
+            }
         }
         try {
             JSONObject styles = new JSONObject(preferences.getString(FOLDER_STYLES, "{}"));
@@ -339,36 +347,36 @@ final class AccountRepository {
         preferences.edit().putStringSet(PENDING_DELETIONS, ids).apply();
     }
 
-    void markAccountUnavailable(Account account) {
-        if (!isAvailabilityEnabledForFolder(account.folderId)) {
+    void markAccountUnavailable(Account account, AvailabilityMode mode) {
+        if (!isAvailabilityEnabledForFolder(account.folderId, mode)) {
             return;
         }
         try {
-            JSONObject lastUsed = lastUsed();
-            lastUsed.put(account.id, System.currentTimeMillis());
-            preferences.edit().putString(ACCOUNT_LAST_USED, lastUsed.toString()).apply();
+            JSONObject lastUsed = lastUsed(mode);
+            lastUsed.put(account.id, currentTimeMillis.getAsLong());
+            preferences.edit().putString(mode.lastUsedKey, lastUsed.toString()).apply();
         } catch (JSONException ignored) {
             // A abertura da conta continua funcionando mesmo se o indicador não puder ser salvo.
         }
     }
 
-    boolean isAccountAvailable(String accountId) {
+    boolean isAccountAvailable(String accountId, AvailabilityMode mode) {
         try {
-            long usedAt = lastUsed().optLong(accountId, 0L);
-            long duration = getAvailabilityDurationHours() * 60L * 60L * 1000L;
-            return usedAt <= 0L || System.currentTimeMillis() - usedAt >= duration;
+            long usedAt = lastUsed(mode).optLong(accountId, 0L);
+            long duration = getAvailabilityDurationHours(mode) * 60L * 60L * 1000L;
+            return usedAt <= 0L || currentTimeMillis.getAsLong() - usedAt >= duration;
         } catch (JSONException ignored) {
             return true;
         }
     }
 
-    boolean isAvailabilityEnabledForFolder(String folderId) {
-        return getAvailabilityEnabledFolderIds().contains(folderId);
+    boolean isAvailabilityEnabledForFolder(String folderId, AvailabilityMode mode) {
+        return getAvailabilityEnabledFolderIds(mode).contains(folderId);
     }
 
-    Set<String> getAvailabilityEnabledFolderIds() {
-        if (preferences.contains(AVAILABILITY_FOLDERS)) {
-            return new HashSet<>(preferences.getStringSet(AVAILABILITY_FOLDERS, new HashSet<>()));
+    Set<String> getAvailabilityEnabledFolderIds(AvailabilityMode mode) {
+        if (preferences.contains(mode.foldersKey)) {
+            return new HashSet<>(preferences.getStringSet(mode.foldersKey, new HashSet<>()));
         }
         Set<String> allFolders = new HashSet<>();
         for (AccountFolder folder : getFolders()) {
@@ -377,31 +385,30 @@ final class AccountRepository {
         return allFolders;
     }
 
-    int getAvailabilityDurationHours() {
-        return Math.max(1, preferences.getInt(AVAILABILITY_DURATION_HOURS, DEFAULT_AVAILABILITY_HOURS));
+    int getAvailabilityDurationHours(AvailabilityMode mode) {
+        return Math.max(1, Math.min(720, preferences.getInt(mode.durationKey, DEFAULT_AVAILABILITY_HOURS)));
     }
 
-    void saveAvailabilitySettings(Set<String> folderIds, int durationHours) {
+    void saveAvailabilitySettings(Set<String> folderIds, int durationHours, AvailabilityMode mode) {
         preferences.edit()
-                .putStringSet(AVAILABILITY_FOLDERS, new HashSet<>(folderIds))
-                .putInt(AVAILABILITY_DURATION_HOURS, Math.max(1, Math.min(720, durationHours)))
+                .putStringSet(mode.foldersKey, new HashSet<>(folderIds))
+                .putInt(mode.durationKey, Math.max(1, Math.min(720, durationHours)))
                 .apply();
     }
 
-    void resetAvailabilityIndicators() {
-        preferences.edit()
-                .remove(ACCOUNT_LAST_USED)
-                .remove(ACCOUNT_UNAVAILABLE_UNTIL)
-                .apply();
+    void resetAvailabilityIndicators(AvailabilityMode mode) {
+        SharedPreferences.Editor editor = preferences.edit().remove(mode.lastUsedKey);
+        if (mode == AvailabilityMode.OPEN_WITH) editor.remove(ACCOUNT_UNAVAILABLE_UNTIL);
+        editor.apply();
     }
 
-    boolean hasAvailableAccount(String folderId) {
+    boolean hasAvailableAccount(String folderId, AvailabilityMode mode) {
         List<Account> accounts = getForFolder(folderId);
         if (accounts.isEmpty()) {
             return true;
         }
         for (Account account : accounts) {
-            if (isAccountAvailable(account.id)) {
+            if (isAccountAvailable(account.id, mode)) {
                 return true;
             }
         }
@@ -416,12 +423,13 @@ final class AccountRepository {
         return new HashSet<>(preferences.getStringSet(PINNED_FOLDERS, new HashSet<>()));
     }
 
-    private JSONObject lastUsed() throws JSONException {
-        String raw = preferences.getString(ACCOUNT_LAST_USED, null);
+    private JSONObject lastUsed(AvailabilityMode mode) throws JSONException {
+        String raw = preferences.getString(mode.lastUsedKey, null);
         if (raw != null) {
             return new JSONObject(raw);
         }
         JSONObject migrated = new JSONObject();
+        if (mode != AvailabilityMode.OPEN_WITH) return migrated;
         JSONObject legacy = new JSONObject(preferences.getString(ACCOUNT_UNAVAILABLE_UNTIL, "{}"));
         long legacyDuration = DEFAULT_AVAILABILITY_HOURS * 60L * 60L * 1000L;
         java.util.Iterator<String> keys = legacy.keys();
@@ -429,17 +437,19 @@ final class AccountRepository {
             String accountId = keys.next();
             migrated.put(accountId, Math.max(0L, legacy.optLong(accountId, 0L) - legacyDuration));
         }
-        preferences.edit().putString(ACCOUNT_LAST_USED, migrated.toString()).apply();
+        preferences.edit().putString(mode.lastUsedKey, migrated.toString()).apply();
         return migrated;
     }
 
     private void removeAccountAvailability(String accountId) {
-        try {
-            JSONObject lastUsed = lastUsed();
-            lastUsed.remove(accountId);
-            preferences.edit().putString(ACCOUNT_LAST_USED, lastUsed.toString()).apply();
-        } catch (JSONException ignored) {
-            // A remoção da conta não depende do metadado visual de disponibilidade.
+        for (AvailabilityMode mode : AvailabilityMode.values()) {
+            try {
+                JSONObject lastUsed = lastUsed(mode);
+                lastUsed.remove(accountId);
+                preferences.edit().putString(mode.lastUsedKey, lastUsed.toString()).apply();
+            } catch (JSONException ignored) {
+                // A remoção da conta não depende do metadado visual de disponibilidade.
+            }
         }
     }
 

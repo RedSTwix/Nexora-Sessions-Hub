@@ -12,7 +12,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Identidade dos novos perfis** — proteção parcial contra fingerprinting, gerada somente ao criar uma conta.
 - **Pastas de contas** — organize, renomeie, personalize e reordene pastas e contas.
 - **Seleção múltipla** — mova várias contas ou reorganize grupos preservando a ordem relativa.
-- **Indicadores de disponibilidade** — marque contas utilizadas por um período configurável.
+- **Indicadores de disponibilidade** — controles separados de “Aberto com” e “Perfil usado”, com tempos e pastas próprios.
 - **Autenticação direcionada** — escolha a pasta e a conta quando outro aplicativo abrir um login.
 - **Arquivos nos sites** — selecione arquivos pelo seletor do Android, incluindo seleção múltipla quando solicitada pelo site.
 - **Download de arquivos** — links HTTP(S) são baixados para Downloads pelo gerenciador do Android, usando os cookies do perfil da conta.
@@ -35,12 +35,21 @@ outra pasta também não altera os dados do perfil WebView.
 
 ## Disponibilidade
 
-O controle de disponibilidade ajuda a espaçar o uso das contas:
+O controle de disponibilidade tem dois modos independentes em **Configurações**:
 
-- ao abrir uma conta controlada, o indicador fica vermelho pelo período configurado;
-- terminado o período, o indicador volta a ficar verde;
-- uma pasta fica vermelha quando todas as suas contas controladas estão indisponíveis;
-- **Liberar todos agora** redefine somente os indicadores, sem apagar logins, cookies ou sessões.
+- **Aberto com** registra a escolha de uma conta quando outro aplicativo abre um link no Nexora.
+  Seus indicadores aparecem no seletor de pastas e contas desse fluxo. As configurações e os registros
+  anteriores permanecem nesse modo.
+- **Perfil usado** registra a abertura direta de uma conta, pelo card, menu ou criação dentro do Nexora.
+  Seus indicadores aparecem na lista normal de pastas e contas. Começa sem histórico anterior.
+
+Cada modo permite definir seu tempo de espera (1–720 horas, inicialmente 12), selecionar pastas e
+**Liberar todos agora** somente para aquele modo. Abrir, configurar ou liberar um modo não altera
+o outro. O indicador fica vermelho após cada abertura controlada e volta ao verde quando o período
+termina; uma pasta fica vermelha quando todas as suas contas estão em espera naquele modo. A interface
+confere os indicadores a cada minuto enquanto está visível e ao retornar ao app. Os indicadores são
+visuais: contas vermelhas continuam acessíveis, e reabri-las renova o tempo somente do modo utilizado.
+Sessões, logins, cookies e identidades dos perfis não são alterados por essas configurações.
 
 ## Criar pastas e contas
 
