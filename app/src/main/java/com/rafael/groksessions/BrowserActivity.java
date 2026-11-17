@@ -45,7 +45,6 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 public final class BrowserActivity extends Activity {
-    static final String DEFAULT_URL = "https://www.google.com/";
     static final String EXTRA_PROFILE_ID = "profile_id";
     static final String EXTRA_PROFILE_NAME = "profile_name";
     static final String EXTRA_URL = "url";
@@ -57,6 +56,12 @@ public final class BrowserActivity extends Activity {
 
     private WebView webView;
     private WebView popupWebView;
+    private SiteShortcutRepository shortcuts;
+    private SpeedDialView speedDial;
+    private boolean homeVisible;
+    private boolean homeReturnToPage;
+    private boolean startedAtHome;
+    private int homeNavigationIndex = -1;
     private WebFileChooser fileChooser;
     private BrowserDownloads browserDownloads;
     private View fullscreenView;
@@ -122,18 +127,34 @@ public final class BrowserActivity extends Activity {
                 break;
             }
         }
+        shortcuts = new SiteShortcutRepository(this, profileId);
         buildBrowser(profileName == null ? "Conta" : profileName, profileId);
 
+        boolean defaultHome = initialUrl == null || initialUrl.trim().isEmpty();
+        startedAtHome = savedInstanceState == null ? defaultHome : savedInstanceState.getBoolean("started_at_home", defaultHome);
+        homeNavigationIndex = savedInstanceState == null ? -1 : savedInstanceState.getInt("home_navigation_index", -1);
         Bundle webState = savedInstanceState == null ? null : savedInstanceState.getBundle("web_state");
+        boolean restored = false;
         if (webState != null) {
-            webView.restoreState(webState);
+            restored = webView.restoreState(webState) != null;
+        }
+        if (savedInstanceState != null && savedInstanceState.getBoolean("home_visible", defaultHome)) {
+            showHome(savedInstanceState.getBoolean("home_return_to_page", false) && restored);
+        } else if (!restored && defaultHome) {
+            showHome(false);
+        } else if (!restored) {
+            navigateTo(initialUrl);
         } else {
-            webView.loadUrl(normalizeUrl(initialUrl));
+            address.setText(webView.getUrl());
         }
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean("home_visible", homeVisible);
+        outState.putBoolean("home_return_to_page", homeReturnToPage);
+        outState.putBoolean("started_at_home", startedAtHome);
+        outState.putInt("home_navigation_index", homeNavigationIndex);
         if (webView != null) {
             Bundle webState = new Bundle();
             webView.saveState(webState);
@@ -146,6 +167,7 @@ public final class BrowserActivity extends Activity {
     protected void onDestroy() {
         exitFullscreen(true);
         if (browserDownloads != null) browserDownloads.close();
+        if (speedDial != null) speedDial.closeDialogs();
         if (fileChooser != null) fileChooser.cancel();
         closePopup();
         flushCookies();
@@ -199,14 +221,90 @@ public final class BrowserActivity extends Activity {
             closePopup();
             return;
         }
-        if (webView != null && webView.canGoBack()) {
+        if (homeVisible && homeReturnToPage) {
+            homeReturnToPage = false;
+            hideHome();
+        } else if (homeVisible) {
+            finishBrowser();
+        } else if (webView != null && homeNavigationIndex >= 0
+                && webView.copyBackForwardList().getCurrentIndex() <= homeNavigationIndex) {
+            showHome(false);
+        } else if (webView != null && webView.canGoBack()) {
             webView.goBack();
+        } else if (startedAtHome) {
+            showHome(false);
         } else {
-            if (returnResultToCaller) {
-                setResult(RESULT_CANCELED);
-            }
-            finish();
+            finishBrowser();
         }
+    }
+
+    private void finishBrowser() {
+        if (returnResultToCaller) setResult(RESULT_CANCELED);
+        finish();
+    }
+
+    private void showHome(boolean returnToPage) {
+        exitFullscreen(true);
+        closePopup();
+        fileChooser.cancelFor(webView);
+        browserDownloads.cancelFor(webView);
+        homeReturnToPage = returnToPage;
+        if (!homeVisible) webView.onPause();
+        homeVisible = true;
+        webView.setVisibility(View.GONE);
+        speedDial.refresh();
+        speedDial.setVisibility(View.VISIBLE);
+        address.setText("");
+        address.clearFocus();
+        progress.setVisibility(View.GONE);
+        hideKeyboard();
+    }
+
+    private void hideHome() {
+        if (!homeVisible) return;
+        homeVisible = false;
+        speedDial.setVisibility(View.GONE);
+        webView.setVisibility(View.VISIBLE);
+        webView.onResume();
+        address.setText(webView.getUrl());
+    }
+
+    private void navigateTo(String input) {
+        try {
+            String url = SiteShortcut.normalizeUrl(input);
+            if (homeVisible) {
+                homeNavigationIndex = webView.copyBackForwardList().getSize() == 0 ? 0
+                        : webView.copyBackForwardList().getCurrentIndex() + 1;
+                homeReturnToPage = false;
+                hideHome();
+            }
+            WebView active = activeWebView();
+            address.setText(url);
+            address.clearFocus();
+            hideKeyboard();
+            active.loadUrl(url);
+        } catch (IllegalArgumentException exception) {
+            Toast.makeText(this, exception.getMessage(), Toast.LENGTH_LONG).show();
+            if (webView.getUrl() == null) showHome(false);
+        }
+    }
+
+    private void hideKeyboard() {
+        InputMethodManager keyboard = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (keyboard != null && address != null) keyboard.hideSoftInputFromWindow(address.getWindowToken(), 0);
+    }
+
+    private void addCurrentShortcut() {
+        if (homeVisible) { speedDial.showAddSite("", "", null); return; }
+        WebView active = activeWebView();
+        String url = active == null ? null : active.getUrl();
+        if (SiteShortcut.origin(url).isEmpty()) {
+            Toast.makeText(this, "Abra um site para salvar o atalho.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String title = active.getTitle();
+        if (title == null || title.trim().isEmpty()) title = Uri.parse(url).getHost();
+        speedDial.showAddSite(title, url, active.getFavicon());
     }
 
     @SuppressLint("RequiresFeature")
@@ -247,6 +345,13 @@ public final class BrowserActivity extends Activity {
         identity.addView(profile, matchWrap());
         titleBar.addView(identity, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        TextView bookmark = toolbarButton("☆");
+        bookmark.setTextSize(25);
+        bookmark.setTextColor(COLOR_CYAN);
+        bookmark.setContentDescription("Adicionar site aos atalhos deste perfil");
+        bookmark.setOnClickListener(view -> addCurrentShortcut());
+        titleBar.addView(bookmark, new LinearLayout.LayoutParams(dp(42), dp(38)));
+
         TextView shield = toolbarButton("◆");
         shield.setTextColor(COLOR_CYAN);
         shield.setTextSize(14);
@@ -268,19 +373,25 @@ public final class BrowserActivity extends Activity {
         TextView back = toolbarButton("‹");
         back.setTextSize(25);
         back.setBackground(pressableBackground(COLOR_SURFACE_ALT, Color.rgb(17, 45, 59), 12));
-        back.setOnClickListener(view -> {
-            if (popupWebView != null) {
-                closePopup();
-            } else if (webView.canGoBack()) {
-                webView.goBack();
-            }
-        });
+        back.setContentDescription("Voltar");
+        back.setOnClickListener(view -> handleBackNavigation());
         navigation.addView(back, new LinearLayout.LayoutParams(dp(42), dp(44)));
+
+        TextView home = toolbarButton("⌂");
+        home.setTextSize(24);
+        home.setTextColor(COLOR_CYAN);
+        home.setContentDescription("Abrir atalhos deste perfil");
+        home.setBackground(pressableBackground(COLOR_SURFACE_ALT, Color.rgb(17, 45, 59), 12));
+        home.setOnClickListener(view -> showHome(!homeVisible && webView.getUrl() != null));
+        LinearLayout.LayoutParams homeParams = new LinearLayout.LayoutParams(dp(38), dp(44));
+        homeParams.setMargins(dp(6), 0, 0, 0);
+        navigation.addView(home, homeParams);
 
         TextView reload = toolbarButton("↻");
         reload.setTextSize(19);
         reload.setBackground(pressableBackground(COLOR_SURFACE_ALT, Color.rgb(17, 45, 59), 12));
         reload.setOnClickListener(view -> {
+            if (homeVisible) { speedDial.refresh(); return; }
             WebView active = activeWebView();
             if (active != null) active.reload();
         });
@@ -293,7 +404,7 @@ public final class BrowserActivity extends Activity {
         address.setTextSize(12);
         address.setTextColor(COLOR_TEXT);
         address.setHintTextColor(COLOR_MUTED);
-        address.setHint("Pesquisar ou digitar endereço");
+        address.setHint("Digite o endereço do site");
         address.setPadding(dp(14), 0, dp(14), 0);
         address.setBackground(roundedBackground(COLOR_SURFACE, 13, COLOR_LINE, 1));
         address.setSelectAllOnFocus(true);
@@ -302,9 +413,8 @@ public final class BrowserActivity extends Activity {
         address.setOnEditorActionListener((view, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
             if (actionId == EditorInfo.IME_ACTION_GO || enter) {
-                WebView active = activeWebView();
-                if (active != null) active.loadUrl(normalizeUrl(address.getText().toString()));
-                address.clearFocus();
+                if (address.getText().toString().trim().isEmpty()) showHome(!homeVisible && webView.getUrl() != null);
+                else navigateTo(address.getText().toString());
                 return true;
             }
             return false;
@@ -328,6 +438,10 @@ public final class BrowserActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
+        speedDial = new SpeedDialView(this, shortcuts, profileName, this::navigateTo);
+        speedDial.setVisibility(View.GONE);
+        browserContainer.addView(speedDial, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(browserContainer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 0,
@@ -390,12 +504,12 @@ public final class BrowserActivity extends Activity {
             public void onPageStarted(WebView webView, String url, Bitmap favicon) {
                 browserDownloads.cancelFor(webView);
                 fileChooser.cancelFor(webView);
-                if (webView == activeWebView()) address.setText(url);
+                if (!homeVisible && webView == activeWebView()) address.setText(url);
             }
 
             @Override
             public void onPageFinished(WebView webView, String url) {
-                if (webView == activeWebView()) address.setText(url);
+                if (!homeVisible && webView == activeWebView()) address.setText(url);
                 flushCookies();
             }
 
@@ -408,6 +522,12 @@ public final class BrowserActivity extends Activity {
         });
 
         view.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onReceivedIcon(WebView source, Bitmap icon) {
+                shortcuts.updateIcon(source.getUrl(), icon);
+                if (homeVisible) speedDial.refresh();
+            }
+
             @Override
             public void onShowCustomView(View customView, CustomViewCallback callback) {
                 showFullscreen(customView, callback);
@@ -426,7 +546,7 @@ public final class BrowserActivity extends Activity {
             @Override
             public boolean onCreateWindow(WebView parent, boolean isDialog,
                                           boolean isUserGesture, Message resultMsg) {
-                if (popupWebView != null || browserContainer == null
+                if (homeVisible || popupWebView != null || browserContainer == null
                         || resultMsg == null
                         || !(resultMsg.obj instanceof WebView.WebViewTransport)) {
                     return false;
@@ -455,7 +575,7 @@ public final class BrowserActivity extends Activity {
 
             @Override
             public void onProgressChanged(WebView webView, int newProgress) {
-                if (webView != activeWebView()) return;
+                if (homeVisible || webView != activeWebView()) return;
                 progress.setProgress(newProgress);
                 progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
@@ -636,21 +756,6 @@ public final class BrowserActivity extends Activity {
         } catch (ActivityNotFoundException exception) {
             return false;
         }
-    }
-
-    private String normalizeUrl(String input) {
-        if (input == null || input.trim().isEmpty()) {
-            return DEFAULT_URL;
-        }
-        String value = input.trim();
-        Uri uri = Uri.parse(value);
-        if (uri.getScheme() == null) {
-            return "https://" + value;
-        }
-        if (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) {
-            return DEFAULT_URL;
-        }
-        return value;
     }
 
     private boolean supportsProfiles() {

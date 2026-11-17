@@ -555,7 +555,7 @@ public final class MainActivity extends Activity {
             } else if (organizeMode) {
                 toggleOrganizeItemSelection(account.id);
             } else if (!organizeMode) {
-                openBrowser(account, BrowserActivity.DEFAULT_URL);
+                openBrowser(account, null);
             }
         });
 
@@ -817,7 +817,7 @@ public final class MainActivity extends Activity {
 
     private void showAccountMenu(View anchor, Account account) {
         List<NexoraMenuAction> actions = new ArrayList<>();
-        actions.add(new NexoraMenuAction("↗", "Abrir sessão", false, () -> openBrowser(account, BrowserActivity.DEFAULT_URL)));
+        actions.add(new NexoraMenuAction("↗", "Abrir sessão", false, () -> openBrowser(account, null)));
         actions.add(new NexoraMenuAction(
                 "⌖",
                 repository.isAccountPinned(account.id) ? "Desafixar" : "Fixar no topo",
@@ -1722,7 +1722,7 @@ public final class MainActivity extends Activity {
             Account account = repository.add(name, folder.id);
             dialog.dismiss();
             renderContent();
-            openBrowser(account, urlAfterCreation == null ? BrowserActivity.DEFAULT_URL : urlAfterCreation,
+            openBrowser(account, urlAfterCreation,
                     urlAfterCreation == null ? AvailabilityMode.PROFILE_USED : AvailabilityMode.OPEN_WITH);
         }));
         dialog.show();

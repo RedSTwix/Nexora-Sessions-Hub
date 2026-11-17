@@ -9,6 +9,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 ## Recursos principais
 
 - **Sessões isoladas** — cada conta utiliza um perfil independente do Android System WebView.
+- **Atalhos por perfil** — tela inicial com sites próprios de cada conta, nome, URL e ícone, com edição e organização.
 - **Identidade dos novos perfis** — proteção parcial contra fingerprinting, gerada somente ao criar uma conta.
 - **Pastas de contas** — organize, renomeie, personalize e reordene pastas e contas.
 - **Seleção múltipla** — mova várias contas ou reorganize grupos preservando a ordem relativa.
@@ -55,7 +56,21 @@ Sessões, logins, cookies e identidades dos perfis não são alterados por essas
 
 O card com o símbolo **+** ocupa toda a largura da tela e acompanha o contexto: na tela inicial,
 **Criar pasta** organiza um novo grupo; dentro de uma pasta, **Adicionar conta** cria uma sessão
-isolada que abre no Google. O aplicativo não utiliza serviços de Acessibilidade.
+isolada que abre na sua própria tela de atalhos. O aplicativo não utiliza serviços de Acessibilidade.
+
+## Atalhos de sites
+
+Ao abrir uma conta pelo Nexora, a tela **Seus sites** substitui a abertura automática do Google.
+Cada perfil começa com uma lista vazia e mantém seus próprios atalhos e sua própria ordem.
+Use **Adicionar site** para informar nome e endereço HTTP(S), ou a estrela no navegador para
+salvar a página aberta. O botão de início retorna aos atalhos. O menu de cada card permite
+editar, mover antes/depois e excluir o atalho.
+
+O ícone do site é guardado quando o WebView recebe seu favicon durante uma visita; até lá, o
+card mostra a inicial do domínio. Ícones e atalhos ficam apenas no perfil correspondente e
+continuam disponíveis ao renomear ou mover a conta. Excluir a conta também remove seus atalhos.
+A tela inicial é nativa e não fornece a lista de sites ao JavaScript das páginas. Links recebidos
+de outros aplicativos abrem diretamente no endereço solicitado, na conta escolhida.
 
 ## Privacidade e dados locais
 

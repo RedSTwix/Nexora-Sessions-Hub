@@ -127,6 +127,7 @@ final class AccountRepository {
             saveStringSet(PINNED_ACCOUNTS, pinned);
         }
         removeAccountAvailability(accountId);
+        preferences.edit().remove(SiteShortcutRepository.preferenceKey(accountId)).apply();
     }
 
     void renameAccount(String accountId, String newName) {
