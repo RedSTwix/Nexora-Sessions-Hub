@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <application
+        android:name=".NexoraApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -25,6 +26,15 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_paths" />
         </provider>
+
+        <activity
+            android:name=".BackupActivity"
+            android:process=":backup"
+            android:taskAffinity="${applicationId}.backup"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:exported="false" />
 
         <activity
             android:name=".BrowserActivity"

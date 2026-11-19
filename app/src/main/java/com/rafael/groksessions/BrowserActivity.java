@@ -96,6 +96,12 @@ public final class BrowserActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (BackupCoordinator.redirectIfBusy(this)) return;
+        if (NexoraApplication.recoveryFailed) {
+            Toast.makeText(this, "Abra o Nexora para recuperar a restauração interrompida.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         fileChooser = new WebFileChooser(this);
         browserDownloads = new BrowserDownloads(this);
 

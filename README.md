@@ -3,8 +3,8 @@
 Aplicativo Android para organizar várias contas em sessões WebView isoladas. Cada conta mantém
 cookies, cache e armazenamento web próprios, permitindo alternar entre perfis sem misturar logins.
 
-> O Nexora Sessions Hub trabalha somente com dados locais do Android WebView. O aplicativo não
-> envia, sincroniza ou exporta credenciais.
+> O Nexora Sessions Hub trabalha com dados locais do Android WebView e não os sincroniza com um
+> servidor próprio. A exportação manual de backup inclui cookies e dados de sessão em um ZIP sem senha.
 
 ## Recursos principais
 
@@ -21,6 +21,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Vídeos em tela cheia** — fullscreen HTML5 no navegador e nos pop-ups, com saída pelo botão Voltar.
 - **Teclado ao navegar** — recolhe ao deslizar fora dos campos de texto, preservando a rolagem dentro de caixas de texto e editores.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
+- **Backup ZIP completo dos perfis** — exporte e restaure contas, pastas, atalhos, configurações e arquivos do WebView, incluindo cookies e armazenamento dos sites.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
 
 ## Como funciona
@@ -33,6 +34,39 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 
 Pastas e contas podem ser renomeadas ou reordenadas sem perder suas sessões. Mover uma conta para
 outra pasta também não altera os dados do perfil WebView.
+
+## Backup e restauração
+
+Em **Configurações → Backup e restauração**, use **Criar backup ZIP** ou **Restaurar backup ZIP**.
+O seletor de arquivos do Android permite escolher onde salvar e de onde ler o arquivo, sem novas
+permissões de acesso geral ao armazenamento. O ZIP é comum, sem senha e sem criptografia: contém
+dados de sessão e deve ser guardado em local privado.
+
+O backup inclui a organização de contas e pastas, fixações, estilos, atalhos e seus ícones, identidades
+geradas e configurações/tempos dos dois indicadores. Copia também toda a pasta `app_webview` e as
+preferências persistentes do navegador, incluindo bancos de cookies, Local Storage, IndexedDB,
+armazenamento de sessões e dados de service workers existentes em disco. Locks de execução e links
+simbólicos não são exportados. Downloads públicos, APKs, jobs de atualização e callbacks temporários
+de autenticação ficam fora do backup.
+
+A operação usa uma tela em processo separado, com WebView desativado nesse processo quando a API
+permite. O processo do navegador é encerrado antes de copiar ou substituir os arquivos. Os cookies
+são descarregados em disco ao preparar a operação. Ao terminar, **Voltar ao Nexora** reabre o app.
+O progresso mostra o volume processado e a quantidade de arquivos.
+
+Na restauração, o ZIP é extraído em área privada e validado antes da substituição. Formato, caminhos,
+IDs, referências entre contas/pastas, versão do app e inventário SHA-256 dos arquivos são conferidos.
+O usuário vê a quantidade de contas e pastas e confirma a substituição dos dados atuais. A troca
+mantém uma cópia de recuperação dos diretórios anteriores até concluir; falhas e restaurações
+interrompidas são revertidas antes de inicializar novamente o navegador. Há limite de 8 GB de dados
+extraídos e 100 mil arquivos/diretórios.
+
+O ZIP pode ser levado para outro aparelho com o mesmo pacote do Nexora e versões compatíveis de
+Android e WebView. Downgrades de Android/WebView, mudança do pacote provedor e backups criados em
+versão mais nova do Nexora são recusados antes de substituir dados. Chaves do Android Keystore não
+são exportáveis por esse mecanismo. Cookies vencidos, sessões invalidadas pelo servidor ou dados
+protegidos por chaves vinculadas ao aparelho podem exigir novo login; a cópia dos arquivos não
+substitui a autorização de cada site.
 
 ## Disponibilidade
 

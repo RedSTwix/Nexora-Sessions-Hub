@@ -85,6 +85,14 @@ public final class AvailabilitySettingsTest {
         assertNotNull(findDescription(picker, "Aberto com · Em espera"));
     }
 
+    @Test public void settingsExposeBothBackupActions() {
+        ReflectionHelpers.callInstanceMethod(activity, "showAvailabilitySettings");
+        Dialog settings = ShadowDialog.getLatestDialog();
+        assertNotNull(findText(settings.getWindow().getDecorView(), "Backup e restauração"));
+        assertNotNull(findText(settings.getWindow().getDecorView(), "Criar backup ZIP"));
+        assertNotNull(findText(settings.getWindow().getDecorView(), "Restaurar backup ZIP"));
+    }
+
     private static void click(Dialog dialog, String label) {
         TextView button = findText(dialog.getWindow().getDecorView(), label);
         assertNotNull("Botão ausente: " + label, button);

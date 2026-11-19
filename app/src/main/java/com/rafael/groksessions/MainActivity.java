@@ -106,6 +106,13 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (BackupCoordinator.redirectIfBusy(this)) return;
+        if (NexoraApplication.recoveryFailed) {
+            new AlertDialog.Builder(this).setTitle("Restauração interrompida")
+                    .setMessage("Não foi possível recuperar os dados anteriores. Os arquivos de recuperação foram preservados; não limpe os dados do app.")
+                    .setPositiveButton("Fechar", (dialog, which) -> finish()).setCancelable(false).show();
+            return;
+        }
         repository = new AccountRepository(this);
         updater = new AppUpdater(this, this::renderUpdateStatus);
         SecureSessionStore.clearLegacyCallbacks(this);
@@ -118,6 +125,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (repository == null || updater == null) return;
         renderContent();
         availabilityHandler.removeCallbacks(availabilityRefresh);
         availabilityHandler.post(availabilityRefresh);
@@ -131,7 +139,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onPause() {
         availabilityHandler.removeCallbacks(availabilityRefresh);
-        updater.onPause();
+        if (updater != null) updater.onPause();
         super.onPause();
     }
 
@@ -139,7 +147,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         availabilityHandler.removeCallbacks(availabilityRefresh);
         availabilityIndicators.clear();
-        updater.close();
+        if (updater != null) updater.close();
         if (updateDialog != null) {
             updateDialog.dismiss();
         }
@@ -149,6 +157,8 @@ public final class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (BackupCoordinator.redirectIfBusy(this)) return;
+        if (repository == null || updater == null) return;
         setIntent(intent);
         externalIntentHandled = false;
         captureAuthContract(intent);
@@ -215,7 +225,7 @@ public final class MainActivity extends Activity {
         TextView settingsButton = text("⚙", 20, COLOR_CYAN);
         settingsButton.setGravity(Gravity.CENTER);
         settingsButton.setIncludeFontPadding(false);
-        settingsButton.setContentDescription("Configurações e atualizações");
+        settingsButton.setContentDescription("Configurações, backups e atualizações");
         settingsButton.setBackground(pressableBackground(
                 COLOR_SURFACE_ALT,
                 Color.rgb(17, 45, 59),
@@ -1086,7 +1096,7 @@ public final class MainActivity extends Activity {
                 panel,
                 "⚙",
                 "Configurações",
-                "Disponibilidade das contas e atualizações do aplicativo.",
+                "Perfis, indicadores, backups e atualizações.",
                 "×",
                 view -> dialog.dismiss()
         );
@@ -1111,6 +1121,23 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams updateCardParams = matchWrap();
         updateCardParams.setMargins(0, 0, 0, dp(16));
         content.addView(updateCard, updateCardParams);
+
+        LinearLayout backupCard = card();
+        TextView backupTitle = text("Backup e restauração", 17, COLOR_TEXT);
+        backupTitle.setTypeface(null, Typeface.BOLD);
+        backupCard.addView(backupTitle, matchWrap());
+        TextView backupHint = text("ZIP sem senha com pastas, contas, atalhos, configurações, cookies e dados dos sites. Os perfis serão fechados durante a operação.", 12, COLOR_MUTED);
+        backupHint.setPadding(0, dp(6), 0, dp(12));
+        backupCard.addView(backupHint, matchWrap());
+        Button exportBackup = compactButton("Criar backup ZIP");
+        exportBackup.setOnClickListener(view -> { dialog.dismiss(); openBackup(false); });
+        backupCard.addView(exportBackup, matchWrap());
+        Button importBackup = compactButton("Restaurar backup ZIP");
+        importBackup.setOnClickListener(view -> { dialog.dismiss(); openBackup(true); });
+        backupCard.addView(importBackup, matchWrap());
+        LinearLayout.LayoutParams backupParams = matchWrap();
+        backupParams.setMargins(0, 0, 0, dp(16));
+        content.addView(backupCard, backupParams);
 
         for (AvailabilityMode mode : AvailabilityMode.values()) {
             LinearLayout modeCard = card();
@@ -1145,6 +1172,32 @@ public final class MainActivity extends Activity {
         close.setOnClickListener(view -> dialog.dismiss());
         panel.addView(close, matchWrap());
         showNexoraPickerDialog(dialog, panel);
+    }
+
+    @SuppressLint("RequiresFeature")
+    private void openBackup(boolean restore) {
+        try {
+            if (!getSharedPreferences("account_manager", MODE_PRIVATE).edit().commit())
+                throw new java.io.IOException("Não foi possível salvar os dados antes do backup.");
+            if (supportsProfiles()) {
+                ProfileStore store = ProfileStore.getInstance();
+                for (String name : store.getAllProfileNames()) {
+                    androidx.webkit.Profile profile = store.getProfile(name);
+                    if (profile != null) profile.getCookieManager().flush();
+                }
+            }
+            android.content.pm.PackageInfo app = getPackageManager().getPackageInfo(getPackageName(), 0);
+            android.content.pm.PackageInfo engine = androidx.webkit.WebViewCompat.getCurrentWebViewPackage(this);
+            org.json.JSONObject info = new org.json.JSONObject().put("app_id", getPackageName())
+                    .put("app_version", app.versionName).put("version_code", app.versionCode)
+                    .put("sdk", Build.VERSION.SDK_INT).put("created_at", System.currentTimeMillis())
+                    .put("webview_package", engine == null ? "" : engine.packageName)
+                    .put("webview_version", engine == null ? "" : engine.versionName);
+            startActivity(new Intent(this, BackupActivity.class).putExtra("restore", restore)
+                    .putExtra("source_info", info.toString()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception exception) {
+            Toast.makeText(this, "Não foi possível preparar o backup. Tente novamente.", Toast.LENGTH_LONG).show();
+        }
     }
 
     private void showAvailabilityModeSettings(AvailabilityMode mode) {
