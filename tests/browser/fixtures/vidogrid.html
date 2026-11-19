@@ -1,0 +1,39 @@
+<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;background:#111;color:white}aside{padding:12px}button{padding:12px}#modal{position:fixed;inset:12% 5%;background:#222;z-index:10}iframe{width:300px;height:70px}</style>
+<aside><textarea placeholder="Describe the video with Grok">Montanhas</textarea>
+<div><p id="cost">This generation will cost: 0 Credits</p><button id="generate">Generate with Grok 0</button></div></aside>
+<div id="output"><div><span>Output</span></div><div id="card"><div><p>Generation failed</p><p>Status 503</p></div></div></div>
+<div id="modal" role="dialog" hidden><h2>Security check</h2><p>Verify you're human</p><button id="close-site-dialog" aria-label="Close">×</button><div id="grok-turnstile-modal"></div></div>
+<script>
+window.clicks=0;window.sent=0;window.sequence=0;window.widgets={};window.siteWidget=null;
+const shadow=Element.prototype.attachShadow;
+Element.prototype.attachShadow=function(options){const result=shadow.call(this,options);if(this.id==='nexora-vidogrid-assistant')window.panelShadow=result;return result;};
+window.turnstile={
+ render(container,config){
+  const id=String(++sequence),parent=typeof container==='string'?document.querySelector(container):container;
+  const frame=document.createElement('iframe');frame.srcdoc='<p>Fixture verification</p>';parent.appendChild(frame);
+  widgets[id]={config,frame,removed:false,expired:false};return id;
+ },
+ remove(id){const item=widgets[id];if(item){item.removed=true;item.frame.remove();}},
+ isExpired(id){return !!widgets[id]?.expired;}
+};
+window.originalRender=turnstile.render;
+window.approve=id=>widgets[id].config.callback('fixture-approval-'+id);
+window.expire=id=>{widgets[id].expired=true;widgets[id].config['expired-callback']?.();};
+document.querySelector('#generate').onclick=()=>{
+ window.clicks++;document.querySelector('#modal').hidden=false;
+ window.siteWidget=turnstile.render('#grok-turnstile-modal',{sitekey:'fixture-site-key',callback(){
+  window.sent++;turnstile.remove(siteWidget);siteWidget=null;document.querySelector('#modal').hidden=true;
+  document.querySelector('#generate').disabled=true;document.querySelector('#card').innerHTML='<p>Submitting request</p>';
+ },'expired-callback'(){window.siteExpired=true;}});
+};
+document.querySelector('#close-site-dialog').onclick=()=>{
+ if(siteWidget)turnstile.remove(siteWidget);siteWidget=null;document.querySelector('#modal').hidden=true;
+};
+window.finishRequest=(status,stamp='11/19/2026, 18:00:00')=>{
+ document.querySelector('#generate').disabled=false;
+ document.querySelector('#card').innerHTML=status===202
+  ?'<span>Queued</span><dl><dt>Created At</dt><dd>'+stamp+'</dd></dl>'
+  :'<div><p>Generation failed</p><p>Status '+status+'</p></div>';
+};
+</script>

@@ -20,6 +20,7 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 - **Arquivos temporários dos sites** — downloads `blob:` são salvos com progresso e cancelamento, incluindo vídeos do Vidogrid e dos controles HTML5.
 - **Vídeos em tela cheia** — fullscreen HTML5 no navegador e nos pop-ups, com saída pelo botão Voltar.
 - **Teclado ao navegar** — recolhe ao deslizar fora dos campos de texto, preservando a rolagem dentro de caixas de texto e editores.
+- **Assistente por site** — painel do Vidogrid com repetição controlada e antecipação de uma próxima verificação para reduzir a espera.
 - **Atualizações pelo app** — detecte releases oficiais, baixe com progresso e confirme a instalação no Android.
 - **Backup ZIP completo dos perfis** — exporte e restaure contas, pastas, atalhos, configurações e arquivos do WebView, incluindo cookies e armazenamento dos sites.
 - **Privacidade local** — sem servidor próprio, telemetria ou sincronização externa.
@@ -106,6 +107,33 @@ continuam disponíveis ao renomear ou mover a conta. Excluir a conta também rem
 A tela inicial é nativa e não fornece a lista de sites ao JavaScript das páginas. Links recebidos
 de outros aplicativos abrem diretamente no endereço solicitado, na conta escolhida.
 
+## Assistente do site
+
+No navegador de um perfil, toque no ícone **◆**, ao lado da estrela, para abrir ou fechar o
+assistente da página. A integração atual funciona somente em `https://vidogrid.ai/app/video-gen`
+e `https://vidogrid.ai/app/video-gen/grok`, na geração com Grok. Outras páginas continuam sem painel.
+Segurar o mesmo ícone abre as informações da identidade do perfil.
+
+O painel começa pausado. **Ativar repetição** usa o botão normal de geração do site, repete após
+uma nova falha 503 e inicia outra solicitação após um novo aceite, como **Queued**. Não há intervalo
+artificial nem limite de ciclos. O envio automático exige que a página informe custo zero e é
+pausado se o formulário mudar, a página sair de foco ou o site apresentar outra falha.
+
+Enquanto uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma
+aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações
+expiradas ou de outro contexto são descartadas. Se a preparação ainda estiver em andamento, ela
+aparece na janela do site quando chegar sua vez; WebViews sem movimentação de iframe que preserve
+o estado usam uma nova checagem normal. A validação e os limites do site continuam necessários.
+
+**Pausar repetição** cancela a checagem pendente do assistente. Fechar pelo **X** ou pelo **◆**
+também encerra o painel, descarta a preparação e remove seus observadores e callbacks. Uma
+solicitação já recebida pelo servidor pode continuar. Reabrir o painel ou recarregar a página
+começa pausado; nenhuma aprovação ou repetição ativa é salva no backup. Configuração e estado de
+execução ficam restritos à página do perfil atual.
+
+Essa integração depende da interface do Vidogrid e pode precisar de ajustes quando o site mudar.
+O pré-carregamento não garante geração bem-sucedida nem elimina erros 503 do servidor.
+
 ## Privacidade e dados locais
 
 Os sites podem solicitar arquivos pelo seletor do Android. Somente os arquivos escolhidos são
@@ -120,8 +148,8 @@ abrir ou editar uma conta existente não gera uma identidade retroativamente.
 Quando o WebView suporta `DOCUMENT_START_SCRIPT`, a proteção é instalada antes dos scripts de cada
 documento, incluindo pop-ups de login e frames. Algumas leituras de Canvas, áudio offline e capacidade
 do navegador recebem variações estáveis por perfil e origem do site; detalhes da GPU são reduzidos
-a informações genéricas. A geolocalização precisa é bloqueada para esses novos perfis. O ícone do
-escudo no navegador informa se a proteção está ativa, indisponível ou se o perfil é anterior à mudança.
+a informações genéricas. A geolocalização precisa é bloqueada para esses novos perfis. Segurar o
+símbolo ◆ no navegador informa se a proteção está ativa, indisponível ou se o perfil é anterior à mudança.
 
 Essa é uma proteção parcial no contexto JavaScript dos documentos. Workers, OffscreenCanvas,
 características de rede/TLS, fontes, tela, idioma e fuso horário podem continuar expondo dados reais.

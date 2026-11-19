@@ -64,6 +64,7 @@ public final class BrowserActivity extends Activity {
     private int homeNavigationIndex = -1;
     private WebFileChooser fileChooser;
     private BrowserDownloads browserDownloads;
+    private SiteAssistant siteAssistant;
     private View fullscreenView;
     private FrameLayout fullscreenContainer;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
@@ -172,6 +173,7 @@ public final class BrowserActivity extends Activity {
     @Override
     protected void onDestroy() {
         exitFullscreen(true);
+        if (siteAssistant != null) siteAssistant.close();
         if (browserDownloads != null) browserDownloads.close();
         if (speedDial != null) speedDial.closeDialogs();
         if (fileChooser != null) fileChooser.cancel();
@@ -195,6 +197,7 @@ public final class BrowserActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (siteAssistant != null) siteAssistant.pause();
         flushCookies();
         super.onPause();
     }
@@ -250,6 +253,7 @@ public final class BrowserActivity extends Activity {
     }
 
     private void showHome(boolean returnToPage) {
+        if (siteAssistant != null) siteAssistant.pause();
         exitFullscreen(true);
         closePopup();
         fileChooser.cancelFor(webView);
@@ -362,12 +366,16 @@ public final class BrowserActivity extends Activity {
         shield.setTextColor(COLOR_CYAN);
         shield.setTextSize(14);
         shield.setBackground(roundedBackground(Color.rgb(7, 40, 46), 12, Color.rgb(23, 94, 98), 1));
-        shield.setContentDescription(getString(R.string.profile_privacy_title));
-        shield.setOnClickListener(view -> new AlertDialog.Builder(this)
+        shield.setContentDescription("Assistente do site");
+        shield.setOnClickListener(view -> { if (siteAssistant != null) siteAssistant.toggle(); });
+        shield.setOnLongClickListener(view -> {
+            new AlertDialog.Builder(this)
                 .setTitle(R.string.profile_privacy_title)
                 .setMessage(privacySeed == null ? R.string.profile_privacy_legacy
                         : privacyActive ? R.string.profile_privacy_active : R.string.profile_privacy_unavailable)
-                .setPositiveButton("OK", null).show());
+                .setPositiveButton("OK", null).show();
+            return true;
+        });
         titleBar.addView(shield, new LinearLayout.LayoutParams(dp(38), dp(38)));
         root.addView(titleBar, matchWrap());
 
@@ -488,6 +496,10 @@ public final class BrowserActivity extends Activity {
         view.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
                 browserDownloads.download(view, url, userAgent, contentDisposition, mimeType));
         browserDownloads.attach(view);
+        if (view == webView) {
+            siteAssistant = new SiteAssistant(this, view);
+            siteAssistant.attach();
+        }
         ScrollKeyboard.attach(this, view, () -> {
             if (view != activeWebView() || !view.hasWindowFocus()) return;
             address.clearFocus();
@@ -515,6 +527,7 @@ public final class BrowserActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView webView, String url) {
+                if (webView == BrowserActivity.this.webView && siteAssistant != null) siteAssistant.refresh();
                 if (!homeVisible && webView == activeWebView()) address.setText(url);
                 flushCookies();
             }
@@ -559,6 +572,7 @@ public final class BrowserActivity extends Activity {
                 }
 
                 WebView popup = new WebView(BrowserActivity.this);
+                if (siteAssistant != null) siteAssistant.pause();
                 // A janela do login deve compartilhar somente o perfil desta conta.
                 WebViewCompat.setProfile(popup, profileId);
                 configureWebView(popup);
