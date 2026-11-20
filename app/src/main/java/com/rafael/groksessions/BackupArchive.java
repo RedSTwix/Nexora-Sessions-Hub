@@ -23,6 +23,7 @@ import org.json.JSONObject;
 
 /** Plain ZIP with persistent app settings and a cold copy of the entire WebView data directory. */
 final class BackupArchive {
+    private static final String RELEASE_APP_ID = "com.rafael.groksessions";
     static final long MAX_BYTES = 8L * 1024 * 1024 * 1024;
     private static final int MAX_FILES = 100000;
     interface Progress { void update(long bytes, int files) throws IOException; }
@@ -155,7 +156,7 @@ final class BackupArchive {
                 zip.closeEntry();
             }
             if (info == null || settings == null || inventory == null || info.getInt("format") != 1 || !info.has("has_webview")
-                    || !appId.equals(info.getString("app_id"))) throw new IOException("Formato de backup incompatível.");
+                    || !acceptsAppId(appId, info.getString("app_id"))) throw new IOException("Formato de backup incompatível.");
             if (!info.getBoolean("has_webview") && observed.length() > 0) throw new IOException("Metadados inconsistentes no backup.");
             if (info.getInt("version_code") > versionCode) throw new IOException("Atualize o Nexora antes de restaurar este backup.");
             BackupSettings.validate(settings);
@@ -175,6 +176,16 @@ final class BackupArchive {
             if (exception instanceof IOException) throw (IOException) exception;
             throw new IOException("O ZIP contém dados inválidos.", exception);
         }
+    }
+
+    private static boolean acceptsAppId(String target, String source) {
+        // Official and Dev share the same archive schema. Keep this allowlist
+        // exact; similarly named applications are not compatible variants.
+        return target.equals(source) || (isNexoraVariant(target) && isNexoraVariant(source));
+    }
+
+    private static boolean isNexoraVariant(String appId) {
+        return RELEASE_APP_ID.equals(appId) || (RELEASE_APP_ID + ".debug").equals(appId);
     }
 
     private static File safeTarget(File stage, String name) throws IOException {

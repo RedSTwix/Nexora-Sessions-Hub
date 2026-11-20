@@ -157,6 +157,66 @@ public final class BackupTest {
         assertEquals("Conta original", accounts.getAll().get(0).name);
     }
 
+    @Test public void devAcceptsProductionBackupWithSettingsAndUnchangedBrowserFiles() throws Exception {
+        info.put("app_id", "com.rafael.groksessions");
+        byte[] cookieData = "production-session-fixture".getBytes(StandardCharsets.UTF_8);
+        write(new File(root, "Profile_1/Network/Cookies"), cookieData);
+        BackupArchive.Restored restored = BackupArchive.read(new ByteArrayInputStream(exportZip()), workspace,
+                "com.rafael.groksessions.debug", 48, (bytes, files) -> {});
+        assertEquals("com.rafael.groksessions", restored.info.getString("app_id"));
+        assertEquals(1, BackupSettings.counts(restored.settings).get("accounts").intValue());
+        assertEquals(1, BackupSettings.counts(restored.settings).get("folders").intValue());
+        assertArrayEquals(cookieData, bytes(new File(restored.webview, "Profile_1/Network/Cookies")));
+        assertTrue(new File(restored.stage, "webview_prefs/WebViewChromiumPrefs.xml").isFile());
+    }
+
+    @Test public void productionRestoresDevBackupWithAccountsFoldersCookiesAndSiteStorage() throws Exception {
+        info.put("app_id", "com.rafael.groksessions.debug").put("app_version", "0.8.6-dev").put("version_code", 48);
+        File cookies = new File(root, "Profile_1/Network/Cookies");
+        BackupFiles.mkdir(cookies.getParentFile());
+        try (SQLiteDatabase database = SQLiteDatabase.openOrCreateDatabase(cookies, null)) {
+            database.execSQL("CREATE TABLE cookies(name TEXT,value TEXT)");
+            database.execSQL("INSERT INTO cookies VALUES('session','dev-session-fixture')");
+        }
+        byte[] storage = new byte[]{7,11,13,17};
+        write(new File(root, "Profile_1/Local Storage/leveldb/000003.ldb"), storage);
+        String originalSeed = account.privacySeed;
+        BackupArchive.Restored restored = BackupArchive.read(new ByteArrayInputStream(exportZip()), workspace,
+                "com.rafael.groksessions", 49, (bytes, files) -> {});
+        accounts.renameAccount(account.id, "Alterado após exportar");
+        BackupTransaction.restore(context, restored);
+        AccountRepository reopened = new AccountRepository(context);
+        assertEquals("Conta original", reopened.getAll().get(0).name);
+        assertEquals("Pasta original", reopened.getFolders().get(0).name);
+        assertEquals(originalSeed, reopened.getAll().get(0).privacySeed);
+        assertEquals("Meu site", new SiteShortcutRepository(context, account.id).getAll().get(0).name);
+        assertArrayEquals(storage, bytes(new File(root, "Profile_1/Local Storage/leveldb/000003.ldb")));
+        assertTrue(new File(prefs, "WebViewChromiumPrefs.xml").isFile());
+        try (SQLiteDatabase database = SQLiteDatabase.openDatabase(cookies.getPath(), null, SQLiteDatabase.OPEN_READONLY);
+             Cursor cursor = database.rawQuery("SELECT value FROM cookies WHERE name='session'", null)) {
+            assertTrue(cursor.moveToFirst()); assertEquals("dev-session-fixture", cursor.getString(0));
+        }
+    }
+
+    @Test public void crossAppImportStillRejectsForeignIdsAndFutureVersionsInBothVariants() throws Exception {
+        for (String foreign : new String[]{"other.application", "com.rafael.groksessions.beta", "com.rafael.groksessions.debug.other"}) {
+            info.put("app_id", foreign);
+            byte[] archive = exportZip();
+            for (String target : new String[]{"com.rafael.groksessions", "com.rafael.groksessions.debug"})
+                assertThrows(IOException.class, () -> BackupArchive.read(new ByteArrayInputStream(archive), workspace,
+                        target, 49, (bytes, files) -> {}));
+        }
+        for (String source : new String[]{"com.rafael.groksessions", "com.rafael.groksessions.debug"}) {
+            info.put("app_id", source).put("version_code", 999);
+            byte[] future = exportZip();
+            for (String target : new String[]{"com.rafael.groksessions", "com.rafael.groksessions.debug"})
+                assertThrows(IOException.class, () -> BackupArchive.read(new ByteArrayInputStream(future), workspace,
+                        target, 49, (bytes, files) -> {}));
+        }
+        assertEquals(0, workspace.listFiles().length);
+        assertEquals("Conta original", accounts.getAll().get(0).name);
+    }
+
     @Test public void pendingCallbacksDownloadsAndCleanupQueuesAreNotRestoredAsAccountData() throws Exception {
         preferences.edit().putStringSet("pending_deletions", Collections.singleton("removed_profile")).commit();
         context.getSharedPreferences("app_updates", 0).edit().putString("state", "target-only").commit();
