@@ -134,7 +134,7 @@
       const error = output && [...output.querySelectorAll('p')].find(item => /^generation failed$/i.test(text(item)) && visible(item));
       if (error && !errorIds.has(error)) errorIds.set(error, ++sequence);
       const errorText = error ? text(error.parentElement) : '';
-      const challenge = !!root.__nexoraVidoPreload?.status()?.awaitingSiteVerification
+      const challenge = !!root.__nexoraVidoPreload?.isSiteVerificationPending?.()
         || [...document.querySelectorAll('[role="dialog"], [data-state="open"]')]
           .some(item => visible(item) && /verify you.re human|complete the verification|security check/i.test(text(item)))
         || [...document.querySelectorAll('iframe')].some(item => !item.closest('[data-nexora-precheck]')

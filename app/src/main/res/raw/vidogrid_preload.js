@@ -119,7 +119,7 @@
     cancelPending();
     if(window.__nexoraVidoPreload===controller)delete window.__nexoraVidoPreload;
     return {restored:true,status:status()};}
-  const controller={status,sync,cancelPending,restore};
+  const controller={status,sync,cancelPending,restore,isSiteVerificationPending:()=>ownedWidgets.size>0};
   window.__nexoraVidoPreload=controller;
   return status();
   };
