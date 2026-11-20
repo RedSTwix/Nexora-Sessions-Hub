@@ -15,8 +15,8 @@ before(async()=>{
  browser=await chromium.launch(options);
 });
 after(async()=>await browser?.close());
-async function open(url='https://vidogrid.ai/app/video-gen/grok',init='',limit=5){
- const context=await browser.newContext({viewport:{width:392,height:844}});
+async function open(url='https://vidogrid.ai/app/video-gen/grok',init='',limit=5,device={}){
+ const context=await browser.newContext({viewport:{width:392,height:844},...device});
  await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:fixture}));
  await context.addInitScript({content:init+'\n'+preload+'\n'+assistant+'\nwindow.__nexoraSiteAssistant?.setAcceptedLimit('+limit+');'});
  const page=await context.newPage();await page.goto(url);
@@ -45,9 +45,22 @@ test('a long check has no timeout and a hidden old error never becomes a new out
  state.observe(failure({challenge:true,errorToken:null,failure503:false}),86400000);
  assert.equal(state.active,true);assert.equal(state.phase,'checking');
  assert.equal(state.takeAttempt(failure(),86400001),false);
- for(const extra of [{free:false},{hidden:true},{route:false},{otherError:true,failure503:false}]){
+ for(const extra of [{free:false},{hidden:true},{route:false}]){
   const other=new RetryState();other.start(failure(extra),0);assert.equal(other.active,false);
  }
+});
+test('explicit activation or resume can retry an old failure once without repeating a newly returned failure',()=>{
+ const state=new RetryState(),failed=failure({otherError:true,failure503:false});
+ state.start(failed,0);assert.equal(state.takeAttempt(failed,0),true);
+ assert.equal(state.takeAttempt(failed,1),false);
+ state.observe(failure({processing:true,errorToken:null,failure503:false,otherError:false}),2);
+ state.observe(failure({errorToken:2,otherError:true,failure503:false}),3);
+ assert.equal(state.active,false);
+ const latest=failure({errorToken:2,otherError:true,failure503:false});
+ state.resume(latest,4);assert.equal(state.takeAttempt(latest,4),true);
+ assert.equal(state.takeAttempt(latest,5),false);
+ const paid=new RetryState();paid.start({...failed,free:false},0);
+ assert.equal(paid.active,false);
 });
 test('an unchanged old 503 never triggers an unconfirmed retry and eventually pauses safely',()=>{
  const state=new RetryState(0);
@@ -200,6 +213,86 @@ test('the icon opens a paused panel; repeated injections and reload never start 
   assert.equal(await page.locator('#nexora-vidogrid-assistant').count(),0);
  }finally{await context.close();}
 });
+for(const touch of [false,true])test(`${touch?'touch':'mouse'}: only an intentional control click changes repetition; panel space never leaks clicks to the site`,async()=>{
+ const {context,page}=await open(undefined,'',5,touch?{hasTouch:true,isMobile:true}:{});try{
+  await page.evaluate(()=>{
+   window.outsidePanelClicks=0;
+   document.addEventListener('click',event=>{
+    if(event.composedPath().some(node=>node.id==='nexora-vidogrid-assistant'))window.outsidePanelClicks++;
+   });
+   window.__nexoraSiteAssistant.toggle();
+  });
+  const click=async selector=>{
+   const point=await page.evaluate(selector=>{
+    const rect=window.panelShadow.querySelector(selector).getBoundingClientRect();
+    return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
+   },selector);
+   if(touch)await page.touchscreen.tap(point.x,point.y);else await page.mouse.click(point.x,point.y);
+  };
+  for(const selector of ['header span','#title','#detail','#preload'])await click(selector);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.isActive()),false);
+  assert.equal(await page.evaluate(()=>window.clicks),0);
+  await click('#toggle');assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.isActive()),true);
+  for(const selector of ['header span','#title','#detail','#preload'])await click(selector);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.isActive()),true);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  await click('#toggle');assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.isActive()),false);
+  assert.equal(await page.evaluate(()=>window.outsidePanelClicks),0);
+  if(!touch){
+   await page.evaluate(()=>window.panelShadow.querySelector('#toggle').focus());
+   await page.keyboard.press('Space');
+   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.isActive()),true);
+  }
+ }finally{await context.close();}
+});
+async function animateUnrelatedCaption(page){
+ return page.evaluate(async()=>{
+  let queries=0;const original=document.querySelectorAll;
+  document.querySelectorAll=function(...args){queries++;return Reflect.apply(original,this,args);};
+  const caption=document.createElement('span');document.body.appendChild(caption);
+  try{for(let i=0;i<30;i++)await new Promise(resolve=>requestAnimationFrame(()=>{caption.textContent=String(i);resolve();}));}
+  finally{caption.remove();document.querySelectorAll=original;}
+  return queries;
+ });
+}
+test('unrelated animated captions do not repeatedly scan the document while paused or checking',async()=>{
+ for(const active of [false,true]){
+  const {context,page}=await open();try{
+   if(active)await activate(page);else await page.evaluate(()=>window.__nexoraSiteAssistant.toggle());
+   const queries=await animateUnrelatedCaption(page);
+   assert.ok(queries<30,`${active?'checking':'paused'}: ${queries} document scans for 30 animation frames`);
+   assert.equal(await page.evaluate(()=>window.clicks),active?1:0);
+  }finally{await context.close();}
+ }
+});
+test('reading queue status does not rescan the page to check whether repetition is active',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);
+  const queries=await page.evaluate(()=>{
+   let queries=0;const original=document.querySelectorAll;
+   document.querySelectorAll=function(...args){queries++;return Reflect.apply(original,this,args);};
+   try{for(let i=0;i<100;i++)window.__nexoraVidoPreload.status();}
+   finally{document.querySelectorAll=original;}
+   return queries;
+  });
+  assert.equal(queries,0);
+ }finally{await context.close();}
+});
+test('replacing the site button and output refreshes cached elements before the next attempt',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>{
+   const button=document.querySelector('#generate'),replacement=button.cloneNode(true);
+   replacement.onclick=button.onclick;button.replaceWith(replacement);
+   const output=document.querySelector('#output');output.replaceWith(output.cloneNode(true));
+   window.finishRequest(503);
+  });
+  await page.waitForFunction(()=>window.clicks===2);
+  assert.equal(await page.evaluate(()=>window.siteWidget),'2');
+  await page.evaluate(()=>window.approve('2'));
+  assert.equal(await page.evaluate(()=>window.sent),2);
+ }finally{await context.close();}
+});
 test('ready lookahead is held during A and used once after a normal Queued outcome',async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
@@ -216,50 +309,113 @@ test('ready lookahead is held during A and used once after a normal Queued outco
   assert.equal(await page.evaluate(()=>window.sequence),3);
  }finally{await context.close();}
 });
-test('unfinished precheck uses the site verification instead of attaching its pending iframe',async()=>{
+test('a pending queue entry becomes current without reloading its frame and starts the next entry',async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
   await page.waitForFunction(()=>window.widgets['2'].frame.contentDocument?.body.textContent.includes('Fixture'));
+  await page.evaluate(()=>{
+   window.queueWindow=window.widgets['2'].frame.contentWindow;
+   window.queueParent=window.widgets['2'].frame.parentElement;
+   window.queueWindow.progressMarker='verification-in-progress';
+  });
   await page.evaluate(()=>window.widgets['2'].config['before-interactive-callback']());
   await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.clicks===2);
-  assert.equal(await page.evaluate(()=>window.siteWidget),'3');
-  assert.equal(await page.evaluate(()=>window.widgets['2'].removed),true);
-  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().assigned),false);
-  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().awaitingSiteVerification),true);
-  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'checking');
-  assert.equal(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),
-    'Verificação normal do site em andamento');
-  await page.evaluate(()=>window.approve('2'));
+  assert.equal(await page.evaluate(()=>window.siteWidget),'2');
+  assert.equal(await page.evaluate(()=>window.widgets['2'].removed),false);
+  assert.equal(await page.evaluate(()=>window.widgets['2'].frame.contentWindow===window.queueWindow
+   &&window.queueWindow.progressMarker==='verification-in-progress'
+   &&window.widgets['2'].frame.parentElement===window.queueParent),true);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().assigned),true);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().preparing),true);
+  await page.waitForFunction(()=>window.__nexoraVidoAssistant.status().phase==='checking');
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().interactionVisible),true);
+  assert.equal(await page.evaluate(()=>window.sequence),3);
+  // C may finish before B, but cannot overtake it or send while B is pending.
+  await page.evaluate(()=>window.approve('3'));
   assert.equal(await page.evaluate(()=>window.sent),1);
   await page.waitForTimeout(650);
   assert.equal(await page.evaluate(()=>window.clicks),2);
-  await page.evaluate(()=>window.approve('3'));
+  await page.evaluate(()=>window.approve('2'));
   assert.equal(await page.evaluate(()=>window.sent),2);
-  await page.waitForFunction(()=>!window.__nexoraVidoPreload.status().awaitingSiteVerification);
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.sent===3);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().used),2);
+  assert.equal(await page.evaluate(()=>window.sequence),4);
  }finally{await context.close();}
 });
-test('pending normal site verification never submits without approval, even with stale 503 visible',async()=>{
+test('a pending promoted verification never submits without approval, even with stale 503 visible',async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
   await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.clicks===2);
-  assert.equal(await page.evaluate(()=>window.siteWidget),'3');
+  assert.equal(await page.evaluate(()=>window.siteWidget),'2');
   await page.waitForTimeout(1000);
   assert.equal(await page.evaluate(()=>window.sent),1);
   assert.equal(await page.evaluate(()=>window.clicks),2);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'checking');
-  await page.evaluate(()=>window.approve('3'));
+  await page.evaluate(()=>window.approve('2'));
   assert.equal(await page.evaluate(()=>window.sent),2);
  }finally{await context.close();}
 });
-test('older browsers fall back to the original widget when an unfinished preparation cannot be moved safely',async()=>{
+test('queue promotion preserves the pending widget even without the moveBefore browser API',async()=>{
  const {context,page}=await open(undefined,'Element.prototype.moveBefore=undefined;');try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
   await page.evaluate(()=>window.finishRequest(503));await page.waitForFunction(()=>window.clicks===2);
-  assert.equal(await page.evaluate(()=>window.siteWidget),'3');
+  assert.equal(await page.evaluate(()=>window.siteWidget),'2');
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().used),0);
-  assert.equal(await page.evaluate(()=>window.widgets['2'].removed),true);
+  assert.equal(await page.evaluate(()=>window.widgets['2'].removed),false);
+  await page.evaluate(()=>window.approve('2'));
+  assert.equal(await page.evaluate(()=>window.sent),2);
+ }finally{await context.close();}
+});
+test('the next verification is prepared while the first one still awaits interaction',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);
+  assert.equal(await page.evaluate(()=>window.sequence),2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().preparing),true);
+  assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('[data-nexora-queue-role="next"]')).opacity),'0');
+  await page.evaluate(()=>window.approve('2'));
+  assert.equal(await page.evaluate(()=>window.sent),0);
+  await page.evaluate(()=>window.approve('1'));
+  assert.equal(await page.evaluate(()=>window.sent),1);
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.sent===2);
+ }finally{await context.close();}
+});
+for(const failure of ['expired-callback','error-callback','timeout-callback'])test(`${failure}: a failed current verification pauses and discards both queue entries`,async()=>{
+ const {context,page}=await open();try{
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.__nexoraVidoPreload.status().assigned);
+  await page.evaluate(name=>window.widgets['2'].config[name](),failure);
+  await page.waitForFunction(()=>!window.__nexoraVidoAssistant.status().active);
+  assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
+  assert.equal(await page.evaluate(()=>window.widgets['2'].removed&&window.widgets['3'].removed),true);
+  await page.evaluate(()=>{window.approve('2');window.approve('3');});
+  assert.equal(await page.evaluate(()=>window.sent),1);
+  assert.match(await page.evaluate(()=>window.__nexoraVidoAssistant.status().reason),/checagem da vez/);
+ }finally{await context.close();}
+});
+for(const action of ['pause','close','navigate'])test(`${action}: existing panel controls or navigation cancel both checks while the promoted widget is visible`,async()=>{
+ const {context,page}=await open();try{
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.__nexoraVidoPreload.status().assigned);
+  assert.equal(await page.locator('[data-nexora-queue-role="current"] button').count(),0);
+  if(action==='navigate')await page.evaluate(()=>{history.pushState({},'','/history');document.body.appendChild(document.createElement('div'));});
+  else{
+   const button=await page.evaluateHandle(action=>window.panelShadow.querySelector(action==='pause'?'#toggle':'#close'),action);
+   // A real pointer click must reach the existing panel even with a modal open.
+   await button.asElement().click();
+  }
+  await page.waitForFunction(()=>document.querySelectorAll('[data-nexora-precheck]').length===0);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant?.status().active??false),false);
+  assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
+  assert.equal(await page.evaluate(()=>document.querySelector('#modal').hidden),true);
+  await page.evaluate(()=>{window.approve('2');window.approve('3');});
+  assert.equal(await page.evaluate(()=>window.sent),1);
+  if(action==='pause')assert.equal(await page.evaluate(()=>document.getElementById('nexora-vidogrid-assistant').parentElement===document.documentElement),true);
  }finally{await context.close();}
 });
 test('closing with the icon cancels an original check and later callbacks cannot send',async()=>{
@@ -334,6 +490,131 @@ test('two accepted jobs with the same displayed second are distinguished after t
   await page.evaluate(()=>window.approve('3'));await page.evaluate(()=>window.finishRequest(202));
   await page.waitForFunction(()=>window.sent===3);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),2);
+ }finally{await context.close();}
+});
+
+async function installSiteJobState(page){
+ await page.evaluate(()=>{
+  const container=document.createElement('div');container.id='__nuxt';document.body.appendChild(container);
+  window.fixtureJobStore={textToVideoResult:null};
+  container.__vue_app__={config:{globalProperties:{$pinia:{_s:new Map([['textToVideoStore',window.fixtureJobStore]])}}}};
+  window.onGenerationRequest=()=>{window.fixtureJobStore.textToVideoResult={status:1};};
+ });
+}
+test('Rendering without Created At is counted only after the site has a confirmed job identity',async()=>{
+ const {context,page}=await open(undefined,'',1);try{
+  await installSiteJobState(page);await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>{
+   document.querySelector('#card').innerHTML='<span>Rendering</span><div>89% · Creating video</div><dl><dt>Model</dt><dd>Grok</dd><dt>Resolution</dt><dd>1080p</dd></dl>';
+   document.querySelector('#generate').disabled=false;
+  });
+  // The website creates a status=1 placeholder before the server accepts it.
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),0);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  await page.evaluate(()=>{window.fixtureJobStore.textToVideoResult={uuid:'fixture-confirmed-job',status:1,created_at:'fixture-created'};});
+  await page.waitForFunction(()=>window.__nexoraVidoAssistant.status().accepted===1,null,{timeout:3000});
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'limit');
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+ }finally{await context.close();}
+});
+test('the same server job is counted once as Rendering, Queued and metadata change',async()=>{
+ const {context,page}=await open(undefined,'',2);try{
+  await installSiteJobState(page);await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>{
+   window.fixtureJobStore.textToVideoResult={uuid:'fixture-job-A',status:1};
+   document.querySelector('#card').innerHTML='<span>Rendering</span><div>Creating video</div>';
+  });
+  await page.waitForFunction(()=>window.__nexoraVidoAssistant.status().accepted===1,null,{timeout:3000});
+  await page.evaluate(()=>{
+   window.fixtureJobStore.textToVideoResult={uuid:'fixture-job-A',status:0,queued:true,created_at:'later-metadata'};
+   document.querySelector('#card').innerHTML='<span>Queued</span><dl><dt>Created At</dt><dd>later-metadata</dd></dl>';
+  });
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),1);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  await page.evaluate(()=>{document.querySelector('#generate').disabled=false;});
+  await page.waitForFunction(()=>window.clicks===2);
+  await page.evaluate(()=>window.approve('2'));
+  await page.evaluate(()=>{
+   window.fixtureJobStore.textToVideoResult={uuid:'fixture-job-B',status:1};
+   document.querySelector('#card').innerHTML='<span>Rendering</span><div>Creating video</div>';
+   document.querySelector('#generate').disabled=false;
+  });
+  await page.waitForFunction(()=>window.__nexoraVidoAssistant.status().accepted===2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'limit');
+  assert.equal(await page.evaluate(()=>window.clicks),2);
+ }finally{await context.close();}
+});
+test('existing jobs, stale displayed metadata and a failed server job do not become new acceptances',async()=>{
+ const {context,page}=await open(undefined,'',1);try{
+  await installSiteJobState(page);
+  await page.evaluate(()=>{
+   window.fixtureJobStore.textToVideoResult={uuid:'existing-job',status:1};
+   document.querySelector('#card').innerHTML='<span>Rendering</span><div>Creating video</div>';
+  });
+  await activate(page);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),0);
+  await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>{
+   document.querySelector('#card').innerHTML='<span>Rendering</span><dl><dt>Created At</dt><dd>stale-metadata</dd></dl>';
+   document.querySelector('#generate').disabled=false;
+  });
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),0);
+  await page.evaluate(()=>{window.fixtureJobStore.textToVideoResult={uuid:'failed-job',status:-2};});
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),0);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+ }finally{await context.close();}
+});
+test('a newly returned non-503 failure pauses instead of consuming the next prepared check',async()=>{
+ const {context,page}=await open();try{
+  await installSiteJobState(page);await activate(page);
+  await page.evaluate(()=>{window.approve('1');window.approve('2');});
+  await page.evaluate(()=>{
+   window.fixtureJobStore.textToVideoResult={uuid:'rejected-job',status:-2};
+   document.querySelector('#generate').disabled=false;
+   document.querySelector('#card').innerHTML='<div><p>Generation failed</p><p>The content violates moderation policies and cannot be processed. Please try a different idea</p></div>';
+  });
+  await page.waitForFunction(()=>!window.__nexoraVidoAssistant.isActive());
+  const state=await page.evaluate(()=>window.__nexoraVidoAssistant.status());
+  assert.equal(state.accepted,0);assert.equal(state.phase,'paused');assert.match(state.reason,/falha diferente de 503/);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  assert.equal(await page.evaluate(()=>window.widgets['2'].removed),true);
+  await page.evaluate(()=>window.approve('2'));
+  assert.equal(await page.evaluate(()=>window.sent),1);
+ }finally{await context.close();}
+});
+test('Resume starts a new normal attempt even while the previous failed video is still displayed',async()=>{
+ const {context,page}=await open(undefined,'',1);try{
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.finishRequest(400));
+  await page.waitForFunction(()=>!window.__nexoraVidoAssistant.isActive());
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  assert.equal(await page.evaluate(()=>window.panelShadow.querySelector('#toggle').textContent),'Retomar repetição');
+  await page.evaluate(()=>window.panelShadow.querySelector('#toggle').click());
+  assert.equal(await page.evaluate(()=>window.clicks),2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.isActive()),true);
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.clicks),2);
+  await page.evaluate(()=>{window.approve(window.siteWidget);window.finishRequest(202);});
+  await page.waitForFunction(()=>window.__nexoraVidoAssistant.status().accepted===1);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'limit');
+ }finally{await context.close();}
+});
+test('a new non-503 response reusing the same error nodes is not mistaken for the previous failure',async()=>{
+ const {context,page}=await open();try{
+  await page.evaluate(()=>window.finishRequest(400));await activate(page);
+  await page.evaluate(()=>{
+   const card=document.querySelector('#card'),previous=card.firstElementChild;
+   window.approve('1');card.replaceChildren(previous);
+   previous.querySelectorAll('p')[1].textContent='Status 400';
+   document.querySelector('#generate').disabled=false;
+  });
+  await page.waitForFunction(()=>!window.__nexoraVidoAssistant.isActive());
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  assert.match(await page.evaluate(()=>window.__nexoraVidoAssistant.status().reason),/falha diferente de 503/);
  }finally{await context.close();}
 });
 test('unsupported sites and routes never open the panel; changing route closes it',async()=>{

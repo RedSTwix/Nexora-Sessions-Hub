@@ -38,11 +38,13 @@
       this.lastAccepted = snapshot.accepted ? snapshot.acceptedToken : null;
       this.readyAccepted = this.lastAccepted;
       this.inFlight = false; this.due = null; this.reason = ''; this.initialAllowed = true;
+      this.manualErrorToken = snapshot.otherError ? snapshot.errorToken : null;
       if (snapshot.challenge || snapshot.request?.pending || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now, true);
       return this.observe(snapshot, now);
     }
     resume(snapshot, now) {
       this.active = true; this.inFlight = false; this.due = null; this.reason = ''; this.initialAllowed = true;
+      this.manualErrorToken = snapshot.otherError ? snapshot.errorToken : null;
       this.readyAccepted = snapshot.accepted ? snapshot.acceptedToken : null;
       if (snapshot.challenge || snapshot.request?.pending || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now, true);
       return this.observe(snapshot, now);
@@ -56,6 +58,7 @@
       return true;
     }
     markAttempt(snapshot, now, joinPending = false) {
+      this.manualErrorToken = null;
       this.inFlight = true; this.started = now; this.priorError = snapshot.errorToken;
       this.requestFloor = (snapshot.request?.id || 0) - (joinPending && snapshot.request?.pending ? 1 : 0);
       this.priorCancelledVerification = snapshot.cancelledVerification || 0;
@@ -69,7 +72,7 @@
       if (!snapshot.route) { this.stop('Você saiu da página de geração.'); return this.phase; }
       if (snapshot.hidden) { this.stop('Página em segundo plano. Ative novamente ao voltar.'); return this.phase; }
       if (this.inFlight && snapshot.cancelledVerification > this.priorCancelledVerification) {
-        this.stop('A verificação do site foi fechada. Retome para tentar novamente.'); return this.phase;
+        this.stop(snapshot.cancelledVerificationReason || 'A verificação do site foi fechada. Retome para tentar novamente.'); return this.phase;
       }
       if (snapshot.success && !snapshot.accepted) { this.stop('O site exibiu um vídeo no resultado.', 'complete'); return this.phase; }
       if (this.inFlight && !snapshot.errorToken && !snapshot.challenge && snapshot.processing) this.errorCleared = true;
@@ -97,26 +100,30 @@
         }
         this.inFlight = false;
       }
-      if (snapshot.otherError) { this.stop('O site exibiu uma falha diferente de 503.'); return this.phase; }
+      // An explicit Activate/Resume may start one new request over an old
+      // failure. It never turns that previous failure into an automatic retry.
+      const manualRetry = !this.inFlight && this.initialAllowed && snapshot.otherError
+        && this.manualErrorToken !== null && snapshot.errorToken === this.manualErrorToken;
+      if (snapshot.otherError && !manualRetry) { this.stop('O site exibiu uma falha diferente de 503.'); return this.phase; }
       if (!snapshot.failure503 && !(snapshot.accepted && snapshot.acceptedToken === this.readyAccepted)
-        && !(this.initialAllowed && snapshot.initialReady)) {
+        && !(this.initialAllowed && snapshot.initialReady) && !manualRetry) {
         this.phase = 'waiting'; this.due = null; return this.phase;
       }
       if (!snapshot.free) { this.stop('Custo zero não confirmado. Use o botão original do site.'); return this.phase; }
       if (!snapshot.enabled) { this.phase = 'waiting'; this.due = null; return this.phase; }
       if (this.due === null) this.due = now;
-      this.phase = snapshot.failure503 ? 'countdown' : 'accepted'; return this.phase;
+      this.phase = manualRetry ? 'retry' : snapshot.failure503 ? 'countdown' : 'accepted'; return this.phase;
     }
     takeAttempt(snapshot, now) {
       this.observe(snapshot, now);
-      if (!this.active || !['countdown','accepted'].includes(this.phase) || this.due === null || now < this.due) return false;
+      if (!this.active || !['countdown','accepted','retry'].includes(this.phase) || this.due === null || now < this.due) return false;
       this.tries++; this.initialAllowed = false; this.markAttempt(snapshot, now); this.phase = 'waiting'; return true;
     }
   }
 
   // Observe completion metadata only. Bodies, headers, responses and verification
   // values stay with the site's original request; streams are never consumed here.
-  function observeGenerationRequests(isActive) {
+  function observeGenerationRequests(isActive, changed) {
     let latest = null, sequence = 0, disposed = false;
     const matches = (method, value) => {
       try {
@@ -132,10 +139,10 @@
     };
     const begin = () => {
       if (disposed || !isActive()) return null;
-      return latest = {id: ++sequence, pending: true, status: null};
+      latest = {id: ++sequence, pending: true, status: null}; changed(); return latest;
     };
     const finish = (item, status) => {
-      if (!disposed && item) { item.pending = false; item.status = status; }
+      if (!disposed && item) { item.pending = false; item.status = status; changed(); }
     };
     const originalFetch = root.fetch;
     const wrappedFetch = typeof originalFetch === 'function' ? new Proxy(originalFetch, {apply(target, receiver, args) {
@@ -179,8 +186,10 @@
     if (root.__nexoraVidoAssistant) return root.__nexoraVidoAssistant.status();
     const document = root.document;
     const machine = new RetryState(root.__nexoraSiteAssistant?.acceptedLimit() ?? 5);
-    const requests = observeGenerationRequests(() => machine.active);
+    let disposed = false, scheduledFrame = null;
+    const requests = observeGenerationRequests(() => machine.active, scheduleTick);
     const errorIds = new WeakMap(); let sequence = 0, dispatching = false, signature = '', resultEpoch = 0, previousCreated = '';
+    let cachedButton = null, cachedLabel = null, cachedOutput = null, cachedPrompt = null, cachedForm = null;
     const host = document.createElement('div');
     host.id = 'nexora-vidogrid-assistant';
     host.style.cssText = 'position:fixed!important;left:12px!important;right:12px!important;bottom:12px!important;z-index:2147483646!important;pointer-events:auto!important;';
@@ -190,54 +199,112 @@
       header{display:flex;align-items:center;gap:7px;color:#25eee2;font-size:10px;letter-spacing:1px;font-weight:750}header span{flex:1}b{display:block;margin-top:5px;font-size:15px;letter-spacing:0}p{margin:4px 0 9px;color:#b3cbd3;font-size:12px}nav{display:flex;gap:8px;align-items:center}button{font:600 12px system-ui;min-height:36px;border-radius:10px;border:1px solid #31505a;padding:7px 11px;background:#112c36;color:#eaf9fc;cursor:pointer}button.primary{background:#25eee2;color:#032126;border-color:#25eee2;flex:1}button.small{min-height:26px;padding:2px 8px;background:transparent}i{width:6px;height:6px;border-radius:100%;background:#25eee2}section[data-phase="checking"] i,section[data-phase="countdown"] i{background:#eac35c}#preload{font-size:11px;color:#74d8ce}section[data-collapsed="true"] p{display:none}
     </style><section data-phase="off"><header><i></i><span>NEXORA · VIDOGRID</span><button class="small" id="settings" aria-label="Configurações do assistente">⚙</button><button class="small" id="collapse" aria-label="Recolher painel">−</button><button class="small" id="close" aria-label="Fechar painel e parar repetição">×</button></header><b id="title"></b><p id="detail"></p><p id="preload"></p><nav><button class="primary" id="toggle"></button><button id="result">Ver resultado</button></nav></section>`;
     const $ = selector => shadow.querySelector(selector);
+    let panelPress = null;
+    const panelButtons = new Set(shadow.querySelectorAll('button'));
+    const insideButton = (button, event) => {
+      const rect = button.getBoundingClientRect();
+      return event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    };
+    const pointerButton = event => event.composedPath().find(element => panelButtons.has(element) && insideButton(element,event));
+    shadow.addEventListener('pointerdown', event => {
+      panelPress = {id:event.pointerId,button:pointerButton(event),released:false};
+    }, true);
+    shadow.addEventListener('pointerup', event => {
+      if (panelPress?.id === event.pointerId) panelPress.released = !!panelPress.button && pointerButton(event) === panelPress.button;
+    }, true);
+    shadow.addEventListener('pointercancel', () => { panelPress = null; }, true);
+    // Make empty panel space its own touch target and keep its clicks out of
+    // the site's handlers. Mobile touch adjustment must not activate a nearby button.
+    $('section').addEventListener('click', event => event.stopPropagation());
+    function panelAction(selector, action) {
+      const button = $(selector);
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        const press = panelPress; panelPress = null;
+        if (event.isTrusted && event.detail > 0
+          && (!press?.released || press.button !== button || !insideButton(button,event))) return;
+        action(event);
+      });
+    }
     let previousView = '';
     const clock = () => root.performance.now();
     const visible = element => !!(element?.isConnected && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden'
       && !element.closest('[aria-hidden="true"], [hidden]'));
-    const text = element => (element?.innerText || element?.textContent || '').trim();
+    const text = element => (element?.textContent || '').trim();
+    const renderedText = element => (element?.innerText || element?.textContent || '').trim();
+    function refreshElements() {
+      if (!cachedButton?.isConnected || !/^generate with grok\b/i.test(text(cachedButton)))
+        cachedButton = [...document.querySelectorAll('button')].find(item => /^generate with grok\b/i.test(text(item)) && visible(item));
+      if (!cachedLabel?.isConnected || text(cachedLabel).toLowerCase() !== 'output')
+        cachedLabel = [...document.querySelectorAll('span')].find(item => text(item).toLowerCase() === 'output');
+      cachedOutput = cachedLabel?.parentElement?.parentElement;
+      if (!cachedPrompt?.isConnected) cachedPrompt = document.querySelector('textarea[placeholder*="Grok"]') || document.querySelector('textarea');
+      cachedForm = cachedPrompt?.closest('aside') || cachedPrompt?.parentElement;
+    }
+    function siteJobIdentity() {
+      try {
+        // Read only the current generation's public result metadata. The site
+        // omits Created At from the rendering view, but retains its server UUID.
+        const store = document.getElementById('__nuxt')?.__vue_app__?.config?.globalProperties?.$pinia?._s?.get?.('textToVideoStore');
+        if (!store || !('textToVideoResult' in store)) return null;
+        const result = store.textToVideoResult;
+        const confirmed = typeof result?.uuid === 'string' && result.uuid.length > 0 && result.uuid.length <= 256
+          && [0,1,2].includes(result.status);
+        // Before acceptance, the site also uses status=1 for a local placeholder.
+        // An actual job UUID is required; a spinner or percentage is insufficient.
+        return {token: confirmed ? 'job:' + result.uuid : ''};
+      } catch { return null; }
+    }
     function snapshot() {
-      const buttons = [...document.querySelectorAll('button')].filter(item => !host.contains(item));
-      const button = buttons.find(item => /^generate with grok\b/i.test(text(item)) && visible(item));
-      const label = [...document.querySelectorAll('span')].find(item => text(item).toLowerCase() === 'output');
-      const output = label?.parentElement?.parentElement;
+      refreshElements();
+      const button = visible(cachedButton) ? cachedButton : null, output = cachedOutput;
       const error = output && [...output.querySelectorAll('p')].find(item => /^generation failed$/i.test(text(item)) && visible(item));
       if (error && !errorIds.has(error)) errorIds.set(error, ++sequence);
-      const errorText = error ? text(error.parentElement) : '';
+      const errorText = error ? renderedText(error.parentElement) : '';
       const challenge = !!root.__nexoraVidoPreload?.isSiteVerificationPending?.()
         || [...document.querySelectorAll('[role="dialog"], [data-state="open"]')]
           .some(item => visible(item) && /verify you.re human|complete the verification|security check/i.test(text(item)))
         || [...document.querySelectorAll('iframe')].some(item => !item.closest('[data-nexora-precheck]')
           && visible(item) && /^https:\/\/challenges\.cloudflare\.com\//i.test(item.getAttribute('src') || ''));
       const enabled = !!button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
-      const processing = !!button && (!enabled || /generating|submitting|processing|queued/i.test(text(output))) && !error;
+      const outputText = renderedText(output);
+      const processing = !!button && (!enabled || /generating|submitting|processing|queued|rendering|creating video/i.test(outputText)) && !error;
       const success = !!output && !error && [...output.querySelectorAll('video')].some(item => visible(item) && !!(item.currentSrc || item.getAttribute('src') || item.querySelector('source[src]')));
       const created = output && [...output.querySelectorAll('dt')].find(item => /^created at$/i.test(text(item)));
       const stamp = text(created?.nextElementSibling);
       if (previousCreated && !stamp) resultEpoch++;
       previousCreated = stamp;
-      const acceptedToken = stamp ? stamp + '|' + resultEpoch : '';
-      const accepted = !!output && !error && !!stamp && visible(output)
-        && (/\bqueued\b|\brendering\b|\bcreating video\b/i.test(text(output)) || success);
-      const free = !!button && /this generation will cost:\s*0\s*credits\b/i.test(text(button.parentElement));
+      const job = siteJobIdentity();
+      const acceptedToken = job ? job.token : stamp ? stamp + '|' + resultEpoch : '';
+      const accepted = !!output && !error && !!acceptedToken && visible(output)
+        && (/\bqueued\b|\brendering\b|\bcreating video\b/i.test(outputText) || success);
+      const free = !!button && /this generation will cost:\s*0\s*credits\b/i.test(renderedText(button.parentElement));
       const initialReady = enabled && !error && !challenge && !processing && !accepted
         && !!document.querySelector('textarea')?.value.trim();
       return {route: location.origin === 'https://vidogrid.ai' && /^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname),
         hidden: document.hidden, button, output, challenge, processing, success, enabled, free, accepted, acceptedToken,
         initialReady, request: requests.snapshot(),
         cancelledVerification: root.__nexoraVidoPreload?.cancelledSiteVerifications?.() || 0,
+        cancelledVerificationReason: root.__nexoraVidoPreload?.cancelledSiteVerificationReason?.() || '',
         errorToken: error ? errorIds.get(error) : null, failure503: !!error && /\bstatus\s*503\b/i.test(errorText),
         otherError: !!error && !/\bstatus\s*503\b/i.test(errorText)};
     }
-    function noteErrorRevision(changes) {
-      if (!machine.inFlight) return;
-      const label = [...document.querySelectorAll('span')].find(item => text(item).toLowerCase() === 'output');
-      const output = label?.parentElement?.parentElement;
+    function noteResultRevision(changes) {
+      if (!machine.inFlight || !changes.some(change => touches(change, cachedOutput))) return;
+      const output = cachedOutput;
+      // Capture a short-lived empty result before batching the visual update.
+      // Two jobs may otherwise retain the same displayed creation timestamp.
+      if (previousCreated) {
+        const created = output && [...output.querySelectorAll('dt')].find(item => /^created at$/i.test(text(item)));
+        if (!text(created?.nextElementSibling)) { resultEpoch++; previousCreated = ''; }
+      }
       const error = output && [...output.querySelectorAll('p')].find(item =>
         /^generation failed$/i.test(text(item)) && visible(item));
-      if (!error || !/\bstatus\s*503\b/i.test(text(error.parentElement))) return;
+      if (!error) return;
       const panel = error.parentElement;
       // The site can rewrite a result in the same DOM nodes in a single task.
-      // The usual snapshot never sees the old 503 disappear in that case.
+      // The usual snapshot never sees the old error disappear in that case.
       const updated = changes.some(change => {
         if (change.type === 'characterData') return panel.contains(change.target.parentNode);
         if (change.type !== 'childList') return false;
@@ -248,18 +315,35 @@
       if (updated) errorIds.set(error, ++sequence);
     }
     function formSignature() {
-      const prompt = document.querySelector('textarea[placeholder*="Grok"]') || document.querySelector('textarea');
-      const form = prompt?.closest('aside') || document;
+      const form = cachedForm || document;
       const fields = [...form.querySelectorAll('textarea,select,input:not([type="hidden"])')]
         .filter(item => !/turnstile|captcha/i.test(item.name || ''))
         .map(item => [item.type,item.value,item.checked]);
       const choices = [...form.querySelectorAll('[role="tab"][aria-selected="true"],button[data-state="on"],button[aria-pressed="true"]')].map(item => text(item));
       return JSON.stringify([location.pathname, fields, choices]);
     }
+    function touches(change, element) {
+      return !!element && (element.contains(change.target) || (change.type === 'childList'
+        && [...change.addedNodes,...change.removedNodes].some(node => node === element || node.contains(element))));
+    }
+    function relevantChange(change) {
+      if (!cachedButton?.isConnected || !cachedOutput?.isConnected) return true;
+      if (touches(change,cachedButton) || touches(change,cachedOutput) || touches(change,cachedForm)) return true;
+      const element = change.target.nodeType === 1 ? change.target : change.target.parentElement;
+      if (element?.closest('[data-nexora-precheck]')) return false;
+      if (element?.closest('[role="dialog"],#grok-turnstile-modal')) return true;
+      return change.type === 'childList' && [...change.addedNodes].some(node => node.nodeType === 1
+        && !node.matches('[data-nexora-precheck]')
+        && (node.matches('[role="dialog"],#grok-turnstile-modal') || node.querySelector('[role="dialog"],#grok-turnstile-modal')));
+    }
+    function scheduleTick() {
+      if (disposed || scheduledFrame !== null) return;
+      scheduledFrame = root.requestAnimationFrame(() => { scheduledFrame = null; tick(); });
+    }
     function render(now) {
       const elapsed = machine.inFlight ? Math.floor((now-machine.started)/1000) : 0;
       const labels = {off:'Repetir após falha 503',checking:'Aguardando a verificação',processing:'Solicitação em andamento',waiting:'Aguardando resposta do site',
-        countdown:'Servidor ocupado · 503',accepted:'Solicitação aceita · enviando outra',paused:'Repetição pausada',limit:'Meta de aceitas atingida',complete:'Vídeo disponível'};
+        countdown:'Servidor ocupado · 503',retry:'Iniciando nova tentativa',accepted:'Solicitação aceita · enviando outra',paused:'Repetição pausada',limit:'Meta de aceitas atingida',complete:'Vídeo disponível'};
       const title = labels[machine.phase] || labels.waiting;
       const totals = `${machine.tries} enviadas · ${machine.accepted}${machine.limit ? '/' + machine.limit : ''} aceitas`;
       const detail = machine.phase === 'off' ? (machine.limit ? `Pausa após ${machine.limit} aceitas · configure na engrenagem.` : 'Repete após 503 ou novo aceite · sem limite de aceitas.')
@@ -269,12 +353,14 @@
         : machine.active ? totals
         : machine.reason;
       const prepared = root.__nexoraVidoPreload?.status();
-      const preparation = prepared?.awaitingSiteVerification ? 'Verificação normal do site em andamento'
-        : prepared?.approvalReady ? 'Próxima checagem pronta · aguardando a solicitação atual'
-        : prepared?.assigned ? 'Checagem antecipada em uso'
+      const currentCheck = prepared?.assigned ? (prepared.currentNeedsInteraction
+        ? 'Checagem da vez · aguardando sua interação' : 'Checagem antecipada em uso')
+        : prepared?.awaitingSiteVerification ? 'Verificação normal do site em andamento' : '';
+      const nextCheck = prepared?.approvalReady ? 'Próxima checagem pronta · aguardando a solicitação atual'
         : prepared?.needsInteraction ? 'Próxima checagem aguardará sua interação'
         : prepared?.preparing ? 'Preparando a próxima checagem'
         : machine.active ? 'Antecipação da próxima checagem ligada' : 'A antecipação acompanha a repetição';
+      const preparation = [currentCheck,nextCheck].filter(Boolean).join(' · ');
       const view = JSON.stringify([title,detail,machine.phase,machine.active,preparation]);
       if (view === previousView) return; previousView = view;
       $('#title').textContent = title; $('#detail').textContent = detail;
@@ -284,9 +370,12 @@
         : machine.runStarted ? 'Retomar repetição' : 'Ativar repetição';
     }
     function tick() {
+      if (disposed) return;
       if (!host.isConnected) { destroy(); return; }
-      const now = clock(), state = snapshot();
-      if (!state.route) { root.__nexoraSiteAssistant?.hide(); return; }
+      if (!/^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname)) { root.__nexoraSiteAssistant?.hide(); return; }
+      const now = clock();
+      if (!machine.active) { root.__nexoraVidoPreload?.sync(); render(now); return; }
+      const state = snapshot();
       if (machine.active && signature !== formSignature()) machine.stop('O formulário foi alterado. Confira e ative novamente.');
       machine.observe(state, now);
       if (machine.active) root.__nexoraInstallVidoPreload?.();
@@ -302,7 +391,7 @@
     }
     function toggle() {
       if (machine.active) machine.stop('Pausado por você.');
-      else { signature = formSignature();
+      else { refreshElements(); signature = formSignature();
         if (machine.runStarted && machine.phase !== 'limit') machine.resume(snapshot(), clock());
         else machine.start(snapshot(), clock());
       }
@@ -312,6 +401,7 @@
     function setAcceptedLimit(value) { machine.setLimit(value); root.__nexoraVidoPreload?.sync(); render(clock()); }
     function onClick(event) {
       if (dispatching || !machine.active || event.composedPath().includes(host)) return;
+      if (!event.composedPath().some(element => element?.tagName === 'BUTTON' && /^generate with grok\b/i.test(text(element)))) return;
       const state = snapshot();
       if (state.button && event.composedPath().includes(state.button)) machine.markAttempt(state, clock());
     }
@@ -324,6 +414,9 @@
       }
     }
     function destroy() {
+      if (disposed) return;
+      disposed = true;
+      if (scheduledFrame !== null) root.cancelAnimationFrame(scheduledFrame);
       root.clearInterval(timer); machine.stop('Assistente removido.');
       requests.restore();
       root.__nexoraVidoPreload?.restore();
@@ -332,30 +425,38 @@
       document.removeEventListener('input', onChange, true);
       document.removeEventListener('change', onChange, true);
       document.removeEventListener('visibilitychange', tick);
+      root.removeEventListener('nexora-vidogrid-change', scheduleTick);
       host.remove();
       if (root.__nexoraVidoAssistant === api) delete root.__nexoraVidoAssistant;
     }
-    $('#toggle').addEventListener('click', toggle);
+    panelAction('#toggle', toggle);
     $('#settings').disabled = typeof root.__nexoraSiteSettings?.postMessage !== 'function';
-    $('#settings').addEventListener('click', () => { pause(); root.__nexoraSiteSettings?.postMessage('settings'); });
-    $('#close').addEventListener('click', () => root.__nexoraSiteAssistant?.hide());
-    $('#collapse').addEventListener('click', () => { const section = $('section');
+    panelAction('#settings', () => { pause(); root.__nexoraSiteSettings?.postMessage('settings'); });
+    panelAction('#close', () => root.__nexoraSiteAssistant?.hide());
+    panelAction('#collapse', () => { const section = $('section');
       const collapsed = section.dataset.collapsed !== 'true'; section.dataset.collapsed = String(collapsed);
       $('#collapse').textContent = collapsed ? '+' : '−'; });
-    $('#result').addEventListener('click', () => snapshot().output?.scrollIntoView({behavior:'smooth',block:'start'}));
+    panelAction('#result', () => snapshot().output?.scrollIntoView({behavior:'smooth',block:'start'}));
     document.addEventListener('click', onClick, true);
     document.addEventListener('input', onChange, true);
     document.addEventListener('change', onChange, true);
     document.addEventListener('visibilitychange', tick);
+    root.addEventListener('nexora-vidogrid-change', scheduleTick);
     document.documentElement.appendChild(host);
-    const timer = root.setInterval(tick, 500);
-    const api = {destroy, toggle, pause, setAcceptedLimit, status: () => ({active:machine.active,phase:machine.phase,tries:machine.tries,accepted:machine.accepted,acceptedLimit:machine.limit,
+    const timer = root.setInterval(() => {
+      if (machine.active) scheduleTick();
+      else if (!/^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname)) root.__nexoraSiteAssistant?.hide();
+    }, 500);
+    const api = {destroy, toggle, pause, setAcceptedLimit, isActive: () => machine.active, status: () => ({active:machine.active,phase:machine.phase,tries:machine.tries,accepted:machine.accepted,acceptedLimit:machine.limit,
       remaining:machine.due===null?null:Math.max(0,Math.ceil((machine.due-clock())/1000)),inFlight:machine.inFlight,reason:machine.reason,
       snapshot:(()=>{const state=snapshot();return {failure503:state.failure503,challenge:state.challenge,enabled:state.enabled,free:state.free,success:state.success,accepted:state.accepted};})()})};
     root.__nexoraVidoAssistant = api;
     const observer = new MutationObserver(changes => {
-      noteErrorRevision(changes);
-      tick();
+      if (!host.isConnected) { destroy(); return; }
+      if (!/^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname)) { root.__nexoraSiteAssistant?.hide(); return; }
+      if (!machine.active) return;
+      noteResultRevision(changes);
+      if (changes.some(relevantChange)) scheduleTick();
     });
     observer.observe(document.body, {subtree:true,childList:true,characterData:true,attributes:true,
       attributeFilter:['disabled','aria-disabled','hidden','aria-hidden','data-state']});

@@ -62,8 +62,9 @@ mantém uma cópia de recuperação dos diretórios anteriores até concluir; fa
 interrompidas são revertidas antes de inicializar novamente o navegador. Há limite de 8 GB de dados
 extraídos e 100 mil arquivos/diretórios.
 
-O ZIP pode ser levado para outro aparelho com o mesmo pacote do Nexora e versões compatíveis de
-Android e WebView. Downgrades de Android/WebView, mudança do pacote provedor e backups criados em
+O ZIP pode ser restaurado no Nexora oficial ou no Dev, nos dois sentidos, inclusive em outro aparelho,
+com versões compatíveis de Android e WebView. A versão de destino do Nexora deve ser igual ou mais
+recente que a usada no backup. Downgrades de Android/WebView, mudança do pacote provedor e backups criados em
 versão mais nova do Nexora são recusados antes de substituir dados. Chaves do Android Keystore não
 são exportáveis por esse mecanismo. Cookies vencidos, sessões invalidadas pelo servidor ou dados
 protegidos por chaves vinculadas ao aparelho podem exigir novo login; a cópia dos arquivos não
@@ -121,16 +122,22 @@ de solicitações aceitas começa em **5**, e **0** significa infinito. Ao ating
 a repetição pausa e descarta a próxima checagem. O botão **Iniciar novo ciclo** começa uma nova contagem.
 Pausar e retomar preserva a contagem do ciclo; um resultado que já existia ao iniciar não conta como
 um novo aceite. O assistente reconhece falhas 503 mesmo quando o site reutiliza os elementos do resultado.
+Quando disponível, o identificador da geração recebido pelo site distingue cada aceite, inclusive na
+tela **Rendering** sem o campo de data. **Retomar repetição** pode iniciar uma nova tentativa manual
+mesmo que o erro da geração anterior ainda esteja visível. Tocar no texto ou no fundo do painel não
+ativa nem pausa a repetição; somente os controles executam suas ações.
 Quando um 503 antigo permanece sem confirmação de nova resposta por 90 segundos, ele pausa por
 segurança, sem reenviar uma solicitação incerta. O envio automático exige custo zero e é
 pausado se o formulário mudar, a página sair de foco ou o site apresentar outra falha.
 
-Enquanto uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma
+Enquanto a checagem atual ou uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma
 aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações
-expiradas ou de outro contexto são descartadas. Se a preparação estiver pronta, sua aprovação é usada na próxima solicitação. Se ainda estiver
-pendente quando chegar sua vez, a verificação antecipada é descartada e a checagem normal do site
-é apresentada, evitando travamentos por transferência do iframe. O painel diferencia essa
-checagem pendente de uma resposta do servidor. A validação e os limites do site continuam necessários.
+expiradas ou de outro contexto são descartadas. Se a preparação estiver pronta, sua aprovação é usada
+na próxima solicitação. Se ainda estiver pendente quando chegar sua vez, a mesma checagem é exibida
+sem mover seu quadro nem reiniciar o progresso; outra preparação entra no fim da fila. Interações
+solicitadas pela verificação continuam manuais. Os controles do painel permanecem acessíveis durante
+a checagem, e a validação e os limites do site continuam necessários. O painel agrupa as atualizações
+e acompanha os elementos relevantes da página para reduzir o trabalho durante as animações.
 
 **Pausar repetição** cancela a checagem pendente do assistente. Fechar pelo **X** ou pelo **◆**
 também encerra o painel, descarta a preparação e remove seus observadores e callbacks. Uma
