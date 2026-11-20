@@ -118,21 +118,40 @@ test('ready lookahead is held during A and used once after a normal Queued outco
   assert.equal(await page.evaluate(()=>window.sequence),3);
  }finally{await context.close();}
 });
-test('unfinished lookahead moves into the site dialog without resetting its iframe',async()=>{
+test('unfinished precheck uses the site verification instead of attaching its pending iframe',async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
   await page.waitForFunction(()=>window.widgets['2'].frame.contentDocument?.body.textContent.includes('Fixture'));
   await page.evaluate(()=>window.widgets['2'].config['before-interactive-callback']());
-  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().interactionVisible),false);
-  await page.evaluate(()=>window.widgets['2'].frame.contentWindow.fixtureMarker=73);
   await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.clicks===2);
-  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().assigned),true);
-  assert.equal(await page.evaluate(()=>document.querySelector('#grok-turnstile-modal').contains(widgets['2'].frame)),true);
-  assert.equal(await page.evaluate(()=>widgets['2'].frame.contentWindow.fixtureMarker),73);
-  await page.evaluate(()=>window.widgets['2'].config['before-interactive-callback']());
-  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().interactionVisible),true);
+  assert.equal(await page.evaluate(()=>window.siteWidget),'3');
+  assert.equal(await page.evaluate(()=>window.widgets['2'].removed),true);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().assigned),false);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().awaitingSiteVerification),true);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'checking');
+  assert.equal(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),
+    'Verificação normal do site em andamento');
   await page.evaluate(()=>window.approve('2'));
+  assert.equal(await page.evaluate(()=>window.sent),1);
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.clicks),2);
+  await page.evaluate(()=>window.approve('3'));
+  assert.equal(await page.evaluate(()=>window.sent),2);
+  await page.waitForFunction(()=>!window.__nexoraVidoPreload.status().awaitingSiteVerification);
+ }finally{await context.close();}
+});
+test('pending normal site verification never submits without approval, even with stale 503 visible',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.clicks===2);
+  assert.equal(await page.evaluate(()=>window.siteWidget),'3');
+  await page.waitForTimeout(1000);
+  assert.equal(await page.evaluate(()=>window.sent),1);
+  assert.equal(await page.evaluate(()=>window.clicks),2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'checking');
+  await page.evaluate(()=>window.approve('3'));
   assert.equal(await page.evaluate(()=>window.sent),2);
  }finally{await context.close();}
 });

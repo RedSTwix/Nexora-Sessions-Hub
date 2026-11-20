@@ -127,9 +127,10 @@ pausado se o formulário mudar, a página sair de foco ou o site apresentar outr
 
 Enquanto uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma
 aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações
-expiradas ou de outro contexto são descartadas. Se a preparação ainda estiver em andamento, ela
-aparece na janela do site quando chegar sua vez; WebViews sem movimentação de iframe que preserve
-o estado usam uma nova checagem normal. A validação e os limites do site continuam necessários.
+expiradas ou de outro contexto são descartadas. Se a preparação estiver pronta, sua aprovação é usada na próxima solicitação. Se ainda estiver
+pendente quando chegar sua vez, a verificação antecipada é descartada e a checagem normal do site
+é apresentada, evitando travamentos por transferência do iframe. O painel diferencia essa
+checagem pendente de uma resposta do servidor. A validação e os limites do site continuam necessários.
 
 **Pausar repetição** cancela a checagem pendente do assistente. Fechar pelo **X** ou pelo **◆**
 também encerra o painel, descarta a preparação e remove seus observadores e callbacks. Uma

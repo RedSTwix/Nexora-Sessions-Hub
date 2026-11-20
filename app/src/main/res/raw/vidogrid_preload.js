@@ -21,19 +21,12 @@
     item.needsInteraction=true;record('interaction-required');
     // The normal site dialog presents the widget when this preparation gets its turn.
   }
-  function assign(item,selector,config,receiver){
-    if(!item.approval){
-      const slot=document.querySelector(selector);
-      // A state-preserving move keeps the live verification inside the site's own modal.
-      // Older WebViews use a fresh normal widget instead of relocating/reloading an iframe.
-      if(!slot||typeof slot.moveBefore!=='function')return false;
-      try{slot.moveBefore(item.host,null);}catch{return false;}
-      item.host.style.cssText='width:100%;max-width:100%;pointer-events:auto;';
-      item.host.removeAttribute('aria-hidden');item.host.inert=false;
-      item.host.querySelector('p').hidden=true;item.visible=true;
-    }
+  function assign(item,config,receiver){
+    // An unfinished verification must run in the site's own dialog. Moving a
+    // pending iframe may leave the site waiting with no approval callback.
+    if(!item.approval)return false;
     item.consumer=config;item.receiver=receiver;record('prepared-widget-assigned');
-    if(item.approval)queueMicrotask(()=>deliver(item));
+    queueMicrotask(()=>deliver(item));
     return true;
   }
   function deliver(item){
@@ -82,10 +75,13 @@
     const item=prepared;
     const sameContext=item&&['sitekey','action','cData','chlPageData'].every(key=>item.options[key]===config[key]);
     if(item&&!item.removed&&item.id&&sameContext&&!(typeof api.isExpired==='function'&&api.isExpired(item.id))
-      &&assign(item,selector,config,receiver)){
+      &&assign(item,config,receiver)){
       return item.id;
     }
-    if(item)remove(item);
+    if(item){
+      if(!item.approval)record('pending-precheck-fallback-to-site');
+      remove(item);
+    }
     const owned={id:null,cancelled:false};
     ownedWidgets.add(owned);
     const options={...config,callback:function(...values){
@@ -117,6 +113,7 @@
   const timer=setInterval(sync,500);
   function status(){return {installed:true,enabled:enabled(),created,ready,used,expired,
     preparing:!!prepared&&!prepared.approval,approvalReady:!!prepared?.approval,assigned:!!prepared?.consumer,
+    awaitingSiteVerification:ownedWidgets.size>0,
     interactionVisible:!!prepared?.visible,needsInteraction:!!prepared?.needsInteraction,events:[...events]};}
   function restore(){stopped=true;clearInterval(timer);if(api.render===wrappedRender)api.render=originalRender;
     cancelPending();
