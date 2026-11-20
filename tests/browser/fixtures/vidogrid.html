@@ -24,7 +24,9 @@ document.querySelector('#generate').onclick=()=>{
  window.clicks++;document.querySelector('#modal').hidden=false;
  window.siteWidget=turnstile.render('#grok-turnstile-modal',{sitekey:'fixture-site-key',callback(){
   window.sent++;turnstile.remove(siteWidget);siteWidget=null;document.querySelector('#modal').hidden=true;
-  document.querySelector('#generate').disabled=true;document.querySelector('#card').innerHTML='<p>Submitting request</p>';
+  document.querySelector('#generate').disabled=true;
+  if(!window.retainFailureWhenSubmitting)document.querySelector('#card').innerHTML='<p>Submitting request</p>';
+  window.onGenerationRequest?.();
  },'expired-callback'(){window.siteExpired=true;}});
 };
 document.querySelector('#close-site-dialog').onclick=()=>{

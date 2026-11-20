@@ -6,8 +6,8 @@
   if(window.__nexoraVidoPreload)return window.__nexoraVidoPreload.status();
   const api=window.turnstile;
   if(!api||typeof api.render!=='function')return {installed:false};
-  const originalRender=api.render;
-  let prepared=null,configTemplate=null,stopped=false,created=0,used=0,ready=0,expired=0;
+  const originalRender=api.render,originalRemove=api.remove;
+  let prepared=null,configTemplate=null,stopped=false,created=0,used=0,ready=0,expired=0,cancelledChecks=0;
   const events=[],ownedWidgets=new Set();
   const enabled=()=>!stopped&&!!window.__nexoraVidoAssistant?.status().active;
   const record=type=>{events.push({type,at:Math.round(performance.now())});if(events.length>80)events.shift();};
@@ -82,7 +82,7 @@
       if(!item.approval)record('pending-precheck-fallback-to-site');
       remove(item);
     }
-    const owned={id:null,cancelled:false};
+    const owned={id:null,selector,cancelled:false};
     ownedWidgets.add(owned);
     const options={...config,callback:function(...values){
       if(owned.cancelled||!enabled())return;
@@ -95,6 +95,15 @@
   }});
   api.render=wrappedRender;
   if(api.render!==wrappedRender)return {installed:false};
+  const wrappedRemove=typeof originalRemove==='function'?new Proxy(originalRemove,{apply(target,receiver,args){
+    const result=Reflect.apply(target,receiver,args);
+    for(const item of ownedWidgets){
+      if(args[0]!==item.id&&args[0]!==item.selector&&args[0]!==document.querySelector(item.selector))continue;
+      item.cancelled=true;ownedWidgets.delete(item);cancelledChecks++;record('site-verification-closed');
+    }
+    return result;
+  }}):null;
+  if(wrappedRemove)api.remove=wrappedRemove;
   function cancelPending(){
     const hadDialog=!!prepared?.consumer||ownedWidgets.size>0;
     if(prepared)remove(prepared);
@@ -117,9 +126,11 @@
     interactionVisible:!!prepared?.visible,needsInteraction:!!prepared?.needsInteraction,events:[...events]};}
   function restore(){stopped=true;clearInterval(timer);if(api.render===wrappedRender)api.render=originalRender;
     cancelPending();
+    if(api.remove===wrappedRemove)api.remove=originalRemove;
     if(window.__nexoraVidoPreload===controller)delete window.__nexoraVidoPreload;
     return {restored:true,status:status()};}
-  const controller={status,sync,cancelPending,restore,isSiteVerificationPending:()=>ownedWidgets.size>0};
+  const controller={status,sync,cancelPending,restore,isSiteVerificationPending:()=>ownedWidgets.size>0,
+    cancelledSiteVerifications:()=>cancelledChecks};
   window.__nexoraVidoPreload=controller;
   return status();
   };

@@ -38,13 +38,13 @@
       this.lastAccepted = snapshot.accepted ? snapshot.acceptedToken : null;
       this.readyAccepted = this.lastAccepted;
       this.inFlight = false; this.due = null; this.reason = ''; this.initialAllowed = true;
-      if (snapshot.challenge || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now);
+      if (snapshot.challenge || snapshot.request?.pending || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now, true);
       return this.observe(snapshot, now);
     }
     resume(snapshot, now) {
       this.active = true; this.inFlight = false; this.due = null; this.reason = ''; this.initialAllowed = true;
       this.readyAccepted = snapshot.accepted ? snapshot.acceptedToken : null;
-      if (snapshot.challenge || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now);
+      if (snapshot.challenge || snapshot.request?.pending || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now, true);
       return this.observe(snapshot, now);
     }
     setLimit(value) {
@@ -55,8 +55,10 @@
       else if (this.phase === 'limit') this.stop('Limite atualizado. Retome para continuar o ciclo.');
       return true;
     }
-    markAttempt(snapshot, now) {
+    markAttempt(snapshot, now, joinPending = false) {
       this.inFlight = true; this.started = now; this.priorError = snapshot.errorToken;
+      this.requestFloor = (snapshot.request?.id || 0) - (joinPending && snapshot.request?.pending ? 1 : 0);
+      this.priorCancelledVerification = snapshot.cancelledVerification || 0;
       this.errorCleared = !snapshot.errorToken; this.due = null; this.readyAccepted = null;
     }
     observe(snapshot, now) {
@@ -66,6 +68,9 @@
       }
       if (!snapshot.route) { this.stop('Você saiu da página de geração.'); return this.phase; }
       if (snapshot.hidden) { this.stop('Página em segundo plano. Ative novamente ao voltar.'); return this.phase; }
+      if (this.inFlight && snapshot.cancelledVerification > this.priorCancelledVerification) {
+        this.stop('A verificação do site foi fechada. Retome para tentar novamente.'); return this.phase;
+      }
       if (snapshot.success && !snapshot.accepted) { this.stop('O site exibiu um vídeo no resultado.', 'complete'); return this.phase; }
       if (this.inFlight && !snapshot.errorToken && !snapshot.challenge && snapshot.processing) this.errorCleared = true;
       if (snapshot.challenge) { this.phase = 'checking'; this.due = null; return this.phase; }
@@ -78,11 +83,14 @@
       }
       if (snapshot.processing && !snapshot.accepted) { this.phase = 'processing'; this.due = null; return this.phase; }
       if (this.inFlight) {
-        const newFailure = snapshot.errorToken && (this.errorCleared || snapshot.errorToken !== this.priorError);
+        const request = snapshot.request, currentRequest = request && request.id > this.requestFloor;
+        const confirmed503 = currentRequest && !request.pending && request.status === 503 && snapshot.failure503;
+        const newFailure = !(currentRequest && request.pending)
+          && (confirmed503 || (snapshot.errorToken && (this.errorCleared || snapshot.errorToken !== this.priorError)));
         if (!newFailure) {
           // A visible old 503 is not proof that the current request has finished.
           // Stop an ambiguous wait instead of repeating an unconfirmed request.
-          if (snapshot.failure503 && now - this.started >= 90000) {
+          if (!(currentRequest && request.pending) && snapshot.failure503 && now - this.started >= 90000) {
             this.stop('503 na tela, mas sem confirmação de nova resposta. Pausado para evitar envio duplicado.');
           } else this.phase = 'waiting';
           return this.phase;
@@ -106,11 +114,72 @@
     }
   }
 
+  // Observe completion metadata only. Bodies, headers, responses and verification
+  // values stay with the site's original request; streams are never consumed here.
+  function observeGenerationRequests(isActive) {
+    let latest = null, sequence = 0, disposed = false;
+    const matches = (method, value) => {
+      try {
+        if (String(method).toUpperCase() !== 'POST') return false;
+        const base = root.__NUXT__?.config?.public?.api?.imagenproService;
+        if (typeof base !== 'string') return false;
+        const service = new URL(base, root.location.href), url = new URL(value, root.location.href);
+        const prefix = service.pathname.replace(/\/$/, '');
+        return service.protocol === 'https:' && url.origin === service.origin
+          && url.pathname.startsWith(prefix + '/')
+          && /^\/video-gen\/grok-(?:imagine-video-1\.5(?:-lite)?|stream)\/?$/.test(url.pathname.slice(prefix.length));
+      } catch { return false; }
+    };
+    const begin = () => {
+      if (disposed || !isActive()) return null;
+      return latest = {id: ++sequence, pending: true, status: null};
+    };
+    const finish = (item, status) => {
+      if (!disposed && item) { item.pending = false; item.status = status; }
+    };
+    const originalFetch = root.fetch;
+    const wrappedFetch = typeof originalFetch === 'function' ? new Proxy(originalFetch, {apply(target, receiver, args) {
+      const [input, options] = args;
+      const match = matches(options?.method ?? input?.method ?? 'GET', input instanceof root.Request ? input.url : input);
+      const promise = Reflect.apply(target, receiver, args);
+      const item = match ? begin() : null;
+      if (item) promise.then(response => finish(item, response.status), () => finish(item, 0));
+      return promise;
+    }}) : null;
+    if (wrappedFetch) root.fetch = wrappedFetch;
+    const prototype = root.XMLHttpRequest?.prototype, originalOpen = prototype?.open, originalSend = prototype?.send;
+    const targets = new WeakMap(), pending = new Set();
+    const wrappedOpen = prototype && new Proxy(originalOpen, {apply(target, receiver, args) {
+      const result = Reflect.apply(target, receiver, args);
+      targets.set(receiver, matches(args[0], args[1])); return result;
+    }});
+    const wrappedSend = prototype && new Proxy(originalSend, {apply(target, receiver, args) {
+      const item = targets.get(receiver) ? begin() : null;
+      const cleanup = () => { receiver.removeEventListener('loadend', completed); pending.delete(cleanup); };
+      const completed = () => { finish(item, receiver.status); cleanup(); };
+      if (item) { receiver.addEventListener('loadend', completed); pending.add(cleanup); }
+      try { return Reflect.apply(target, receiver, args); }
+      catch (error) { finish(item, 0); cleanup(); throw error; }
+    }});
+    if (prototype) { prototype.open = wrappedOpen; prototype.send = wrappedSend; }
+    return {
+      snapshot: () => latest ? {...latest} : null,
+      restore() {
+        disposed = true;
+        if (root.fetch === wrappedFetch) root.fetch = originalFetch;
+        if (prototype?.open === wrappedOpen) prototype.open = originalOpen;
+        if (prototype?.send === wrappedSend) prototype.send = originalSend;
+        for (const cleanup of pending) cleanup();
+      }
+    };
+  }
+
   function install() {
     if (root !== root.top || location.origin !== 'https://vidogrid.ai' || !/^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname)) return {installed:false};
     if (root.__nexoraVidoAssistant) return root.__nexoraVidoAssistant.status();
     const document = root.document;
     const machine = new RetryState(root.__nexoraSiteAssistant?.acceptedLimit() ?? 5);
+    const requests = observeGenerationRequests(() => machine.active);
     const errorIds = new WeakMap(); let sequence = 0, dispatching = false, signature = '', resultEpoch = 0, previousCreated = '';
     const host = document.createElement('div');
     host.id = 'nexora-vidogrid-assistant';
@@ -154,7 +223,8 @@
         && !!document.querySelector('textarea')?.value.trim();
       return {route: location.origin === 'https://vidogrid.ai' && /^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname),
         hidden: document.hidden, button, output, challenge, processing, success, enabled, free, accepted, acceptedToken,
-        initialReady,
+        initialReady, request: requests.snapshot(),
+        cancelledVerification: root.__nexoraVidoPreload?.cancelledSiteVerifications?.() || 0,
         errorToken: error ? errorIds.get(error) : null, failure503: !!error && /\bstatus\s*503\b/i.test(errorText),
         otherError: !!error && !/\bstatus\s*503\b/i.test(errorText)};
     }
@@ -200,7 +270,7 @@
         : machine.reason;
       const prepared = root.__nexoraVidoPreload?.status();
       const preparation = prepared?.awaitingSiteVerification ? 'Verificação normal do site em andamento'
-        : prepared?.approvalReady ? 'Próxima checagem pronta'
+        : prepared?.approvalReady ? 'Próxima checagem pronta · aguardando a solicitação atual'
         : prepared?.assigned ? 'Checagem antecipada em uso'
         : prepared?.needsInteraction ? 'Próxima checagem aguardará sua interação'
         : prepared?.preparing ? 'Preparando a próxima checagem'
@@ -255,6 +325,7 @@
     }
     function destroy() {
       root.clearInterval(timer); machine.stop('Assistente removido.');
+      requests.restore();
       root.__nexoraVidoPreload?.restore();
       observer.disconnect();
       document.removeEventListener('click', onClick, true);

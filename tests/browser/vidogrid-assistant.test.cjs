@@ -59,6 +59,22 @@ test('an unchanged old 503 never triggers an unconfirmed retry and eventually pa
  assert.match(state.reason,/sem confirmação/);
  assert.equal(state.tries,1);
 });
+test('pending requests suppress stale error rewrites; only a new completed 503 confirms a retry',()=>{
+ const state=new RetryState(0);
+ state.start(failure({request:{id:1,pending:false,status:503}}),0);
+ assert.equal(state.takeAttempt(failure({request:{id:1,pending:false,status:503}}),0),true);
+ assert.equal(state.takeAttempt(failure({errorToken:2,request:{id:2,pending:true,status:null}}),100000),false);
+ assert.equal(state.active,true);
+ assert.equal(state.takeAttempt(failure({request:{id:2,pending:false,status:503}}),100001),true);
+ assert.equal(state.takeAttempt(failure({request:{id:2,pending:false,status:503}}),100002),false);
+ assert.equal(state.takeAttempt(failure({request:{id:3,pending:true,status:null}}),100003),false);
+});
+test('resuming joins a pending request instead of treating its old error as a finished attempt',()=>{
+ const state=new RetryState(0), pending=failure({request:{id:1,pending:true,status:null}});
+ state.start(pending,0);assert.equal(state.takeAttempt(pending,0),false);
+ state.stop('Pausa');state.resume(pending,10);assert.equal(state.takeAttempt(pending,10),false);
+ assert.equal(state.takeAttempt(failure({request:{id:1,pending:false,status:503}}),11),true);
+});
 test('reused error DOM nodes can report a new 503 without an observable intermediate state',async()=>{
  const {context,page}=await open();try{
   // Use the ordinary site verification so the test isolates result tracking.
@@ -87,6 +103,88 @@ test('reused error DOM nodes can report a new 503 without an observable intermed
   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().tries),3);
   await page.waitForTimeout(650);
   assert.equal(await page.evaluate(()=>window.clicks),3);
+ }finally{await context.close();}
+});
+for(const transport of ['xhr','fetch'])test(`${transport}: a confirmed 503 retries with the next check ready even when the error DOM never changes`,async()=>{
+ const apiBase='https://api.fixture.test'+(transport==='xhr'?'/api/v2':'');
+ const {context,page}=await open(undefined,`window.__NUXT__={config:{public:{api:{imagenproService:${JSON.stringify(apiBase)}}}}};`);
+ const requests=[];
+ await context.route('https://api.fixture.test/**',route=>{requests.push(route);});
+ try{
+  await page.evaluate(({transport,apiBase})=>{
+   window.originalTransports=[fetch,XMLHttpRequest.prototype.open,XMLHttpRequest.prototype.send,turnstile.remove];
+   window.retainFailureWhenSubmitting=true;
+   window.onGenerationRequest=()=>{
+    const url=apiBase+(transport==='xhr'?'/video-gen/grok-imagine-video-1.5-lite':'/video-gen/grok-stream');
+    const done=()=>{document.querySelector('#generate').disabled=false;};
+    if(transport==='fetch')fetch(url,{method:'POST',body:'fixture'}).then(done);
+    else{const xhr=new XMLHttpRequest();xhr.open('POST',url);xhr.addEventListener('load',done);xhr.send('fixture');}
+   };
+  },{transport,apiBase});
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.approve('2'));
+  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.startsWith('Próxima checagem pronta'));
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].request().method(),'POST');
+  assert.equal(requests[0].request().postData(),'fixture');
+  await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(()=>window.sent),1);
+  await requests[0].fulfill({status:503,headers:{'access-control-allow-origin':'*'},body:'busy'});
+  await page.waitForFunction(()=>window.sent===2,null,{timeout:3000});
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.sent),2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().used),1);
+  assert.equal(requests.length,2);
+  assert.deepEqual(await page.evaluate(()=>{
+   window.__nexoraSiteAssistant.hide();
+   return [fetch,XMLHttpRequest.prototype.open,XMLHttpRequest.prototype.send,turnstile.remove]
+    .map((method,index)=>method===window.originalTransports[index]);
+  }),[true,true,true,true]);
+  await requests[1].fulfill({status:503,headers:{'access-control-allow-origin':'*'},body:'busy'});
+  await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(()=>window.sent),2);
+ }finally{await context.close();}
+});
+test('unrelated requests, successful responses and network errors cannot confirm a stale 503',async()=>{
+ const {context,page}=await open(undefined,`window.__NUXT__={config:{public:{api:{imagenproService:'https://api.fixture.test'}}}};`);
+ try{
+  await context.route('https://api.fixture.test/**',route=>route.request().url().includes('network-error')
+   ?route.abort():route.fulfill({status:route.request().url().includes('success')?200:503,
+    headers:{'access-control-allow-origin':'*'},body:'fixture'}));
+  await context.route('https://other.fixture.test/**',route=>route.fulfill({status:503,
+   headers:{'access-control-allow-origin':'*'},body:'fixture'}));
+  await page.evaluate(()=>{window.retainFailureWhenSubmitting=true;});
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(async()=>{
+   const cases=[
+    ['https://api.fixture.test/video-gen/grok-stream','GET'],
+    ['https://api.fixture.test/account','POST'],
+    ['https://other.fixture.test/video-gen/grok-stream','POST'],
+    ['https://api.fixture.test/video-gen/grok-stream?success','POST'],
+    ['https://api.fixture.test/video-gen/grok-stream?network-error','POST']
+   ];
+   for(const [url,method] of cases){
+    await fetch(url,{method}).catch(()=>{});
+    await new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open(method,url);
+     xhr.addEventListener('loadend',resolve);xhr.send();});
+   }
+   document.querySelector('#generate').disabled=false;
+  });
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().active),true);
+ }finally{await context.close();}
+});
+test('closing the site verification stops the cycle instead of leaving a permanent pending check',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);await page.locator('#close-site-dialog').click();
+  await page.waitForFunction(()=>!window.__nexoraVidoAssistant.status().active,null,{timeout:3000});
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().awaitingSiteVerification),false);
+  assert.match(await page.evaluate(()=>window.__nexoraVidoAssistant.status().reason),/verificação.*fechada/);
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.clicks),1);
+  await page.evaluate(()=>window.approve('1'));
+  assert.equal(await page.evaluate(()=>window.sent),0);
  }finally{await context.close();}
 });
 test('the icon opens a paused panel; repeated injections and reload never start it',async()=>{
