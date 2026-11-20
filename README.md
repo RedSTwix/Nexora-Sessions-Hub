@@ -120,7 +120,9 @@ artificial entre tentativas. A **engrenagem do painel** abre as configurações 
 de solicitações aceitas começa em **5**, e **0** significa infinito. Ao atingir a meta do ciclo,
 a repetição pausa e descarta a próxima checagem. O botão **Iniciar novo ciclo** começa uma nova contagem.
 Pausar e retomar preserva a contagem do ciclo; um resultado que já existia ao iniciar não conta como
-um novo aceite. O envio automático exige que a página informe custo zero e é
+um novo aceite. O assistente reconhece falhas 503 mesmo quando o site reutiliza os elementos do resultado.
+Quando um 503 antigo permanece sem confirmação de nova resposta por 90 segundos, ele pausa por
+segurança, sem reenviar uma solicitação incerta. O envio automático exige custo zero e é
 pausado se o formulário mudar, a página sair de foco ou o site apresentar outra falha.
 
 Enquanto uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma

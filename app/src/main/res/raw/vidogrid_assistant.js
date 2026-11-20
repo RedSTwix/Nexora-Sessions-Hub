@@ -79,7 +79,14 @@
       if (snapshot.processing && !snapshot.accepted) { this.phase = 'processing'; this.due = null; return this.phase; }
       if (this.inFlight) {
         const newFailure = snapshot.errorToken && (this.errorCleared || snapshot.errorToken !== this.priorError);
-        if (!newFailure) { this.phase = 'waiting'; return this.phase; }
+        if (!newFailure) {
+          // A visible old 503 is not proof that the current request has finished.
+          // Stop an ambiguous wait instead of repeating an unconfirmed request.
+          if (snapshot.failure503 && now - this.started >= 90000) {
+            this.stop('503 na tela, mas sem confirmação de nova resposta. Pausado para evitar envio duplicado.');
+          } else this.phase = 'waiting';
+          return this.phase;
+        }
         this.inFlight = false;
       }
       if (snapshot.otherError) { this.stop('O site exibiu uma falha diferente de 503.'); return this.phase; }
@@ -149,6 +156,25 @@
         initialReady,
         errorToken: error ? errorIds.get(error) : null, failure503: !!error && /\bstatus\s*503\b/i.test(errorText),
         otherError: !!error && !/\bstatus\s*503\b/i.test(errorText)};
+    }
+    function noteErrorRevision(changes) {
+      if (!machine.inFlight) return;
+      const label = [...document.querySelectorAll('span')].find(item => text(item).toLowerCase() === 'output');
+      const output = label?.parentElement?.parentElement;
+      const error = output && [...output.querySelectorAll('p')].find(item =>
+        /^generation failed$/i.test(text(item)) && visible(item));
+      if (!error || !/\bstatus\s*503\b/i.test(text(error.parentElement))) return;
+      const panel = error.parentElement;
+      // The site can rewrite a result in the same DOM nodes in a single task.
+      // The usual snapshot never sees the old 503 disappear in that case.
+      const updated = changes.some(change => {
+        if (change.type === 'characterData') return panel.contains(change.target.parentNode);
+        if (change.type !== 'childList') return false;
+        if (panel.contains(change.target)) return true;
+        return [...change.addedNodes].some(node =>
+          node === panel || (typeof node.contains === 'function' && node.contains(error)));
+      });
+      if (updated) errorIds.set(error, ++sequence);
     }
     function formSignature() {
       const prompt = document.querySelector('textarea[placeholder*="Grok"]') || document.querySelector('textarea');
@@ -254,7 +280,10 @@
       remaining:machine.due===null?null:Math.max(0,Math.ceil((machine.due-clock())/1000)),inFlight:machine.inFlight,reason:machine.reason,
       snapshot:(()=>{const state=snapshot();return {failure503:state.failure503,challenge:state.challenge,enabled:state.enabled,free:state.free,success:state.success,accepted:state.accepted};})()})};
     root.__nexoraVidoAssistant = api;
-    const observer = new MutationObserver(tick);
+    const observer = new MutationObserver(changes => {
+      noteErrorRevision(changes);
+      tick();
+    });
     observer.observe(document.body, {subtree:true,childList:true,characterData:true,attributes:true,
       attributeFilter:['disabled','aria-disabled','hidden','aria-hidden','data-state']});
     tick();

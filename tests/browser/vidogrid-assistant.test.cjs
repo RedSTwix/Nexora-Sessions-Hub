@@ -49,6 +49,46 @@ test('a long check has no timeout and a hidden old error never becomes a new out
   const other=new RetryState();other.start(failure(extra),0);assert.equal(other.active,false);
  }
 });
+test('an unchanged old 503 never triggers an unconfirmed retry and eventually pauses safely',()=>{
+ const state=new RetryState(0);
+ state.start(failure(),0);assert.equal(state.takeAttempt(failure(),0),true);
+ state.observe(failure(),89999);
+ assert.equal(state.active,true);assert.equal(state.phase,'waiting');
+ assert.equal(state.takeAttempt(failure(),90000),false);
+ assert.equal(state.active,false);assert.equal(state.phase,'paused');
+ assert.match(state.reason,/sem confirmação/);
+ assert.equal(state.tries,1);
+});
+test('reused error DOM nodes can report a new 503 without an observable intermediate state',async()=>{
+ const {context,page}=await open();try{
+  // Use the ordinary site verification so the test isolates result tracking.
+  await page.evaluate(()=>{window.__nexoraInstallVidoPreload=()=>({installed:false});});
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.clicks===2);
+  const before=await page.evaluate(()=>window.__nexoraVidoAssistant.status());
+  assert.equal(before.tries,2);
+  // Neither a timer nor an unrelated DOM change may treat the old 503 as fresh.
+  await page.evaluate(()=>document.querySelector('aside').setAttribute('data-refresh','1'));
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.clicks),2);
+  await page.evaluate(()=>{
+    const card=document.querySelector('#card');
+    const oldError=card.firstElementChild;
+    const status=oldError.querySelectorAll('p')[1];
+    window.approve('2');
+    // The website has completed the second request but restores the same old nodes
+    // and the same status text in the very same JavaScript task.
+    card.replaceChildren(oldError);
+    status.textContent='Status 503';
+    document.querySelector('#generate').disabled=false;
+  });
+  await page.waitForFunction(()=>window.clicks===3);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().tries),3);
+  await page.waitForTimeout(650);
+  assert.equal(await page.evaluate(()=>window.clicks),3);
+ }finally{await context.close();}
+});
 test('the icon opens a paused panel; repeated injections and reload never start it',async()=>{
  const {context,page}=await open();try{
   assert.equal(await page.locator('#nexora-vidogrid-assistant').count(),0);
