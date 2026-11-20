@@ -4,10 +4,15 @@
     if (root !== root.top || location.origin !== 'https://vidogrid.ai') return;
     if (root.__nexoraSiteAssistant) return;
     const integration = factory(root);
-    let opened = false;
+    let opened = false, acceptedLimit = 5;
     const supported = () => /^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname);
     const controller = {
       visible: () => opened && !!root.__nexoraVidoAssistant,
+      acceptedLimit: () => acceptedLimit,
+      setAcceptedLimit(value) {
+        if (!Number.isInteger(value) || value < 0 || value > 2147483647) return false;
+        acceptedLimit = value; root.__nexoraVidoAssistant?.setAcceptedLimit(value); return true;
+      },
       toggle() {
         if (controller.visible()) { controller.hide(); return true; }
         if (!supported() || !document.body || ![...document.querySelectorAll('button')]
@@ -23,16 +28,32 @@
   'use strict';
 
   class RetryState {
-    constructor() { this.active = false; this.tries = 0; this.accepted = 0; this.lastAccepted = null; this.readyAccepted = null;
+    constructor(limit = 5) { this.limit = limit; this.runStarted = false; this.active = false; this.tries = 0; this.accepted = 0; this.lastAccepted = null; this.readyAccepted = null;
       this.phase = 'off'; this.due = null; this.inFlight = false; this.reason = ''; }
     stop(reason, phase = 'paused') {
       this.active = false; this.due = null; this.phase = phase; this.reason = reason;
     }
     start(snapshot, now) {
-      this.active = true; this.tries = 0; this.accepted = 0; this.lastAccepted = null; this.readyAccepted = null;
+      this.active = true; this.runStarted = true; this.tries = 0; this.accepted = 0;
+      this.lastAccepted = snapshot.accepted ? snapshot.acceptedToken : null;
+      this.readyAccepted = this.lastAccepted;
       this.inFlight = false; this.due = null; this.reason = ''; this.initialAllowed = true;
-      if (snapshot.challenge || snapshot.processing) this.markAttempt(snapshot, now);
+      if (snapshot.challenge || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now);
       return this.observe(snapshot, now);
+    }
+    resume(snapshot, now) {
+      this.active = true; this.inFlight = false; this.due = null; this.reason = ''; this.initialAllowed = true;
+      this.readyAccepted = snapshot.accepted ? snapshot.acceptedToken : null;
+      if (snapshot.challenge || (snapshot.processing && !snapshot.accepted)) this.markAttempt(snapshot, now);
+      return this.observe(snapshot, now);
+    }
+    setLimit(value) {
+      if (!Number.isInteger(value) || value < 0 || value > 2147483647) return false;
+      this.limit = value;
+      if (this.runStarted && value > 0 && this.accepted >= value)
+        this.stop('Meta de ' + value + ' solicitações aceitas atingida.', 'limit');
+      else if (this.phase === 'limit') this.stop('Limite atualizado. Retome para continuar o ciclo.');
+      return true;
     }
     markAttempt(snapshot, now) {
       this.inFlight = true; this.started = now; this.priorError = snapshot.errorToken;
@@ -40,6 +61,9 @@
     }
     observe(snapshot, now) {
       if (!this.active) return this.phase;
+      if (this.limit > 0 && this.accepted >= this.limit) {
+        this.stop('Meta de ' + this.limit + ' solicitações aceitas atingida.', 'limit'); return this.phase;
+      }
       if (!snapshot.route) { this.stop('Você saiu da página de geração.'); return this.phase; }
       if (snapshot.hidden) { this.stop('Página em segundo plano. Ative novamente ao voltar.'); return this.phase; }
       if (snapshot.success && !snapshot.accepted) { this.stop('O site exibiu um vídeo no resultado.', 'complete'); return this.phase; }
@@ -48,6 +72,9 @@
       if (snapshot.accepted && snapshot.acceptedToken && snapshot.acceptedToken !== this.lastAccepted) {
         this.lastAccepted = snapshot.acceptedToken; this.readyAccepted = snapshot.acceptedToken;
         this.accepted++; this.inFlight = false;
+        if (this.limit > 0 && this.accepted >= this.limit) {
+          this.stop('Meta de ' + this.limit + ' solicitações aceitas atingida.', 'limit'); return this.phase;
+        }
       }
       if (snapshot.processing && !snapshot.accepted) { this.phase = 'processing'; this.due = null; return this.phase; }
       if (this.inFlight) {
@@ -76,7 +103,7 @@
     if (root !== root.top || location.origin !== 'https://vidogrid.ai' || !/^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname)) return {installed:false};
     if (root.__nexoraVidoAssistant) return root.__nexoraVidoAssistant.status();
     const document = root.document;
-    const machine = new RetryState();
+    const machine = new RetryState(root.__nexoraSiteAssistant?.acceptedLimit() ?? 5);
     const errorIds = new WeakMap(); let sequence = 0, dispatching = false, signature = '', resultEpoch = 0, previousCreated = '';
     const host = document.createElement('div');
     host.id = 'nexora-vidogrid-assistant';
@@ -85,7 +112,7 @@
     shadow.innerHTML = `<style>
       :host{all:initial}*{box-sizing:border-box}section{font:13px/1.4 system-ui,sans-serif;color:#eef9fb;background:#0a1b23f5;border:1px solid #26505c;border-radius:16px;padding:13px 14px;box-shadow:0 8px 30px #0009}
       header{display:flex;align-items:center;gap:7px;color:#25eee2;font-size:10px;letter-spacing:1px;font-weight:750}header span{flex:1}b{display:block;margin-top:5px;font-size:15px;letter-spacing:0}p{margin:4px 0 9px;color:#b3cbd3;font-size:12px}nav{display:flex;gap:8px;align-items:center}button{font:600 12px system-ui;min-height:36px;border-radius:10px;border:1px solid #31505a;padding:7px 11px;background:#112c36;color:#eaf9fc;cursor:pointer}button.primary{background:#25eee2;color:#032126;border-color:#25eee2;flex:1}button.small{min-height:26px;padding:2px 8px;background:transparent}i{width:6px;height:6px;border-radius:100%;background:#25eee2}section[data-phase="checking"] i,section[data-phase="countdown"] i{background:#eac35c}#preload{font-size:11px;color:#74d8ce}section[data-collapsed="true"] p{display:none}
-    </style><section data-phase="off"><header><i></i><span>NEXORA · VIDOGRID</span><button class="small" id="collapse" aria-label="Recolher painel">−</button><button class="small" id="close" aria-label="Fechar painel e parar repetição">×</button></header><b id="title"></b><p id="detail"></p><p id="preload"></p><nav><button class="primary" id="toggle"></button><button id="result">Ver resultado</button></nav></section>`;
+    </style><section data-phase="off"><header><i></i><span>NEXORA · VIDOGRID</span><button class="small" id="settings" aria-label="Configurações do assistente">⚙</button><button class="small" id="collapse" aria-label="Recolher painel">−</button><button class="small" id="close" aria-label="Fechar painel e parar repetição">×</button></header><b id="title"></b><p id="detail"></p><p id="preload"></p><nav><button class="primary" id="toggle"></button><button id="result">Ver resultado</button></nav></section>`;
     const $ = selector => shadow.querySelector(selector);
     let previousView = '';
     const clock = () => root.performance.now();
@@ -135,10 +162,10 @@
     function render(now) {
       const elapsed = machine.inFlight ? Math.floor((now-machine.started)/1000) : 0;
       const labels = {off:'Repetir após falha 503',checking:'Aguardando a verificação',processing:'Solicitação em andamento',waiting:'Aguardando resposta do site',
-        countdown:'Servidor ocupado · 503',accepted:'Solicitação aceita · enviando outra',paused:'Repetição pausada',complete:'Vídeo disponível'};
+        countdown:'Servidor ocupado · 503',accepted:'Solicitação aceita · enviando outra',paused:'Repetição pausada',limit:'Meta de aceitas atingida',complete:'Vídeo disponível'};
       const title = labels[machine.phase] || labels.waiting;
-      const totals = `${machine.tries} enviadas · ${machine.accepted} aceitas`;
-      const detail = machine.phase === 'off' ? 'Repete após 503 ou novo aceite · sem intervalo ou limite de ciclos.'
+      const totals = `${machine.tries} enviadas · ${machine.accepted}${machine.limit ? '/' + machine.limit : ''} aceitas`;
+      const detail = machine.phase === 'off' ? (machine.limit ? `Pausa após ${machine.limit} aceitas · configure na engrenagem.` : 'Repete após 503 ou novo aceite · sem limite de aceitas.')
         : machine.phase === 'countdown' ? `Nova tentativa ao receber a falha · ${machine.tries} realizadas`
         : machine.phase === 'checking' ? `${elapsed}s na checagem · ${totals}`
         : machine.inFlight && machine.active ? `${elapsed}s de espera · ${totals}`
@@ -155,7 +182,8 @@
       $('#title').textContent = title; $('#detail').textContent = detail;
       $('#preload').textContent = preparation;
       $('section').dataset.phase = machine.phase;
-      $('#toggle').textContent = machine.active ? 'Pausar repetição' : 'Ativar repetição';
+      $('#toggle').textContent = machine.active ? 'Pausar repetição' : machine.phase === 'limit' ? 'Iniciar novo ciclo'
+        : machine.runStarted ? 'Retomar repetição' : 'Ativar repetição';
     }
     function tick() {
       if (!host.isConnected) { destroy(); return; }
@@ -176,10 +204,14 @@
     }
     function toggle() {
       if (machine.active) machine.stop('Pausado por você.');
-      else { signature = formSignature(); machine.start(snapshot(), clock()); }
+      else { signature = formSignature();
+        if (machine.runStarted && machine.phase !== 'limit') machine.resume(snapshot(), clock());
+        else machine.start(snapshot(), clock());
+      }
       tick();
     }
-    function pause() { machine.stop('Pausado. Toque em Ativar repetição para continuar.'); root.__nexoraVidoPreload?.sync(); render(clock()); }
+    function pause() { if (machine.phase !== 'limit') machine.stop('Pausado. Retome pelo painel para continuar.'); root.__nexoraVidoPreload?.sync(); render(clock()); }
+    function setAcceptedLimit(value) { machine.setLimit(value); root.__nexoraVidoPreload?.sync(); render(clock()); }
     function onClick(event) {
       if (dispatching || !machine.active || event.composedPath().includes(host)) return;
       const state = snapshot();
@@ -205,6 +237,8 @@
       if (root.__nexoraVidoAssistant === api) delete root.__nexoraVidoAssistant;
     }
     $('#toggle').addEventListener('click', toggle);
+    $('#settings').disabled = typeof root.__nexoraSiteSettings?.postMessage !== 'function';
+    $('#settings').addEventListener('click', () => { pause(); root.__nexoraSiteSettings?.postMessage('settings'); });
     $('#close').addEventListener('click', () => root.__nexoraSiteAssistant?.hide());
     $('#collapse').addEventListener('click', () => { const section = $('section');
       const collapsed = section.dataset.collapsed !== 'true'; section.dataset.collapsed = String(collapsed);
@@ -216,7 +250,7 @@
     document.addEventListener('visibilitychange', tick);
     document.documentElement.appendChild(host);
     const timer = root.setInterval(tick, 500);
-    const api = {destroy, toggle, pause, status: () => ({active:machine.active,phase:machine.phase,tries:machine.tries,accepted:machine.accepted,
+    const api = {destroy, toggle, pause, setAcceptedLimit, status: () => ({active:machine.active,phase:machine.phase,tries:machine.tries,accepted:machine.accepted,acceptedLimit:machine.limit,
       remaining:machine.due===null?null:Math.max(0,Math.ceil((machine.due-clock())/1000)),inFlight:machine.inFlight,reason:machine.reason,
       snapshot:(()=>{const state=snapshot();return {failure503:state.failure503,challenge:state.challenge,enabled:state.enabled,free:state.free,success:state.success,accepted:state.accepted};})()})};
     root.__nexoraVidoAssistant = api;

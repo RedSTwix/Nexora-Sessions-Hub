@@ -15,10 +15,10 @@ before(async()=>{
  browser=await chromium.launch(options);
 });
 after(async()=>await browser?.close());
-async function open(url='https://vidogrid.ai/app/video-gen/grok',init=''){
+async function open(url='https://vidogrid.ai/app/video-gen/grok',init='',limit=5){
  const context=await browser.newContext({viewport:{width:392,height:844}});
  await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:fixture}));
- await context.addInitScript({content:init+'\n'+preload+'\n'+assistant});
+ await context.addInitScript({content:init+'\n'+preload+'\n'+assistant+'\nwindow.__nexoraSiteAssistant?.setAcceptedLimit('+limit+');'});
  const page=await context.newPage();await page.goto(url);
  return {context,page};
 }
@@ -31,7 +31,7 @@ const failure=(extra={})=>({route:true,hidden:false,challenge:false,processing:f
  errorToken:1,failure503:true,otherError:false,...extra});
 
 test('fresh 503 outcomes retry immediately without a cycle limit, while stale errors never double-submit',()=>{
- const state=new RetryState();state.start(failure(),0);
+ const state=new RetryState(0);state.start(failure(),0);
  assert.equal(state.takeAttempt(failure(),0),true);
  assert.equal(state.takeAttempt(failure(),1),false);
  for(let i=1;i<=200;i++){
@@ -192,4 +192,64 @@ test('unsupported sites and routes never open the panel; changing route closes i
   assert.equal(await page.locator('#nexora-vidogrid-assistant').count(),0);
   assert.equal(await page.evaluate(()=>window.turnstile.render===window.originalRender),true);
  }finally{await context.close();}
+});
+
+async function acceptCurrent(page,number){
+ await page.evaluate(()=>window.approve(window.siteWidget));
+ await page.waitForFunction(n=>window.sent===n,number);
+ await page.evaluate(n=>window.finishRequest(202,'fixture-accepted-'+n),number);
+ await page.waitForFunction(n=>window.__nexoraVidoAssistant.status().accepted===n,number);
+}
+
+test('the default fifth acceptance stops without a sixth submission and discards the prepared check',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);
+  for(let i=1;i<=5;i++)await acceptCurrent(page,i);
+  const state=await page.evaluate(()=>window.__nexoraVidoAssistant.status());
+  assert.equal(state.acceptedLimit,5);assert.equal(state.phase,'limit');assert.equal(state.active,false);
+  assert.equal(await page.evaluate(()=>window.clicks),5);assert.equal(await page.evaluate(()=>window.sent),5);
+  assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
+  assert.equal(await page.evaluate(()=>window.panelShadow.querySelector('#toggle').textContent),'Iniciar novo ciclo');
+ }finally{await context.close();}
+});
+test('zero permits more than five acceptances without stopping',async()=>{
+ const {context,page}=await open(undefined,'',0);try{
+  await activate(page);for(let i=1;i<=8;i++)await acceptCurrent(page,i);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().active),true);
+  assert.equal(await page.evaluate(()=>window.clicks),9);
+ }finally{await context.close();}
+});
+test('existing results are excluded from a new cycle and pause/resume preserves its accepted count',async()=>{
+ const {context,page}=await open(undefined,'',2);try{
+  await page.evaluate(()=>window.finishRequest(202,'older-result'));
+  await activate(page);assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),0);
+  await acceptCurrent(page,1);
+  await page.evaluate(()=>window.__nexoraVidoAssistant.toggle());
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),1);
+  await page.evaluate(()=>window.__nexoraVidoAssistant.toggle());
+  await acceptCurrent(page,2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().phase),'limit');
+  assert.equal(await page.evaluate(()=>window.sent),2);
+  await page.evaluate(()=>window.__nexoraVidoAssistant.toggle());
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),0);
+ }finally{await context.close();}
+});
+test('the gear pauses and sends only the settings command; a saved value survives panel close/reopen',async()=>{
+ const {context,page}=await open(undefined,'window.commands=[];window.__nexoraSiteSettings={postMessage(value){commands.push(value)}};');try{
+  await activate(page);await page.evaluate(()=>window.panelShadow.querySelector('#settings').click());
+  assert.deepEqual(await page.evaluate(()=>window.commands),['settings']);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().active),false);
+  assert.equal(await page.evaluate(()=>window.__nexoraSiteAssistant.setAcceptedLimit(3)),true);
+  await page.evaluate(()=>{window.__nexoraSiteAssistant.hide();window.__nexoraSiteAssistant.toggle();});
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().acceptedLimit),3);
+  assert.equal(await page.evaluate(()=>window.__nexoraSiteAssistant.setAcceptedLimit(-1)),false);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().acceptedLimit),3);
+ }finally{await context.close();}
+});
+
+test('lowering the limit stops immediately; increasing a reached limit permits continuing that cycle',()=>{
+ const state=new RetryState(5);state.runStarted=true;state.active=true;state.accepted=3;
+ state.setLimit(2);assert.equal(state.active,false);assert.equal(state.phase,'limit');
+ state.setLimit(4);assert.equal(state.phase,'paused');assert.equal(state.accepted,3);
+ assert.equal(state.setLimit(-1),false);assert.equal(state.limit,4);
 });

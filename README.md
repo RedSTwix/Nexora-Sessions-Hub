@@ -116,7 +116,11 @@ Segurar o mesmo ícone abre as informações da identidade do perfil.
 
 O painel começa pausado. **Ativar repetição** usa o botão normal de geração do site, repete após
 uma nova falha 503 e inicia outra solicitação após um novo aceite, como **Queued**. Não há intervalo
-artificial nem limite de ciclos. O envio automático exige que a página informe custo zero e é
+artificial entre tentativas. A **engrenagem do painel** abre as configurações do perfil: o limite
+de solicitações aceitas começa em **5**, e **0** significa infinito. Ao atingir a meta do ciclo,
+a repetição pausa e descarta a próxima checagem. O botão **Iniciar novo ciclo** começa uma nova contagem.
+Pausar e retomar preserva a contagem do ciclo; um resultado que já existia ao iniciar não conta como
+um novo aceite. O envio automático exige que a página informe custo zero e é
 pausado se o formulário mudar, a página sair de foco ou o site apresentar outra falha.
 
 Enquanto uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma
@@ -128,8 +132,10 @@ o estado usam uma nova checagem normal. A validação e os limites do site conti
 **Pausar repetição** cancela a checagem pendente do assistente. Fechar pelo **X** ou pelo **◆**
 também encerra o painel, descarta a preparação e remove seus observadores e callbacks. Uma
 solicitação já recebida pelo servidor pode continuar. Reabrir o painel ou recarregar a página
-começa pausado; nenhuma aprovação ou repetição ativa é salva no backup. Configuração e estado de
-execução ficam restritos à página do perfil atual.
+começa pausado. O limite configurado fica salvo no Android, separado por perfil, e acompanha o
+backup e a restauração; ele não depende dos cookies do site. A contagem do ciclo, as aprovações
+e a repetição ativa não são salvas. Abrir as configurações pausa a repetição, que pode ser retomada
+pelo painel depois de salvar.
 
 Essa integração depende da interface do Vidogrid e pode precisar de ajustes quando o site mudar.
 O pré-carregamento não garante geração bem-sucedida nem elimina erros 503 do servidor.

@@ -497,7 +497,7 @@ public final class BrowserActivity extends Activity {
                 browserDownloads.download(view, url, userAgent, contentDisposition, mimeType));
         browserDownloads.attach(view);
         if (view == webView) {
-            siteAssistant = new SiteAssistant(this, view);
+            siteAssistant = new SiteAssistant(this, view, profileId);
             siteAssistant.attach();
         }
         ScrollKeyboard.attach(this, view, () -> {
