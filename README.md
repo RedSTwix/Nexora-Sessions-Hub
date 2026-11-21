@@ -34,7 +34,10 @@ cookies, cache e armazenamento web próprios, permitindo alternar entre perfis s
 5. Selecione primeiro a pasta e depois a conta que receberá a URL.
 
 Pastas e contas podem ser renomeadas ou reordenadas sem perder suas sessões. Mover uma conta para
-outra pasta também não altera os dados do perfil WebView.
+outra pasta também não altera os dados do perfil WebView. Nomes de perfis são únicos em todo o
+aplicativo, independentemente da pasta: a criação ou renomeação com um nome já utilizado é recusada,
+ignorando diferenças entre maiúsculas/minúsculas e espaços nas extremidades. Perfis existentes,
+inclusive os restaurados de backups antigos, são preservados.
 
 ## Backup e restauração
 

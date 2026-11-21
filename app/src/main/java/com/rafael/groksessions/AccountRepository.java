@@ -69,13 +69,14 @@ final class AccountRepository {
     }
 
     Account add(String name, String folderId) {
+        List<Account> accounts = getAll();
+        ensureUniqueAccountName(accounts, name, null);
         Account account = new Account(
                 "grok_" + UUID.randomUUID().toString().replace("-", ""),
                 name.trim(),
                 folderId,
                 ProfileIdentity.newSeed()
         );
-        List<Account> accounts = getAll();
         accounts.add(account);
         save(accounts);
         return account;
@@ -133,6 +134,7 @@ final class AccountRepository {
 
     void renameAccount(String accountId, String newName) {
         List<Account> accounts = getAll();
+        ensureUniqueAccountName(accounts, newName, accountId);
         List<Account> renamed = new ArrayList<>();
         for (Account account : accounts) {
             if (account.id.equals(accountId)) {
@@ -142,6 +144,19 @@ final class AccountRepository {
             }
         }
         save(renamed);
+    }
+
+    private static void ensureUniqueAccountName(List<Account> accounts, String name, String excludedAccountId) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException("Informe um nome");
+        }
+        String candidate = name.trim();
+        for (Account account : accounts) {
+            if ((excludedAccountId == null || !account.id.equals(excludedAccountId))
+                    && account.name.trim().equalsIgnoreCase(candidate)) {
+                throw new IllegalArgumentException("Já existe um perfil com esse nome.");
+            }
+        }
     }
 
     void renameFolder(String folderId, String newName) {

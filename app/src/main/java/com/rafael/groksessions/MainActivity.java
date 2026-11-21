@@ -1772,7 +1772,13 @@ public final class MainActivity extends Activity {
                 input.setError("Informe um nome");
                 return;
             }
-            Account account = repository.add(name, folder.id);
+            final Account account;
+            try {
+                account = repository.add(name, folder.id);
+            } catch (IllegalArgumentException exception) {
+                input.setError(exception.getMessage());
+                return;
+            }
             dialog.dismiss();
             renderContent();
             openBrowser(account, urlAfterCreation,
@@ -1833,8 +1839,13 @@ public final class MainActivity extends Activity {
                 input.setError("Informe um nome");
                 return;
             }
+            try {
+                receiver.accept(name);
+            } catch (IllegalArgumentException exception) {
+                input.setError(exception.getMessage());
+                return;
+            }
             dialog.dismiss();
-            receiver.accept(name);
         }));
         dialog.show();
     }
