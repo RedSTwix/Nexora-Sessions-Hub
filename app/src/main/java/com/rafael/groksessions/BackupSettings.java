@@ -15,7 +15,7 @@ import java.util.Arrays;
 /** Only persistent account data belongs in a backup; pending callbacks/downloads do not. */
 final class BackupSettings {
     private static final Set<String> STRINGS = new HashSet<>(Arrays.asList("accounts", "folders", "folder_styles", "account_last_used",
-            "account_unavailable_until", "profile_last_used"));
+            "account_unavailable_until", "profile_last_used", AccountRepository.PROFILE_INDICATOR_COLORS));
     private static final Set<String> SETS = new HashSet<>(Arrays.asList("pinned_folders", "pinned_accounts", "availability_folders", "profile_availability_folders"));
     private static final Set<String> INTS = new HashSet<>(Arrays.asList("availability_duration_hours", "profile_availability_duration_hours"));
     private BackupSettings() {}
@@ -58,7 +58,18 @@ final class BackupSettings {
             Iterator<String> keys = settings.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
-                if (STRINGS.contains(key)) { new JSONObject(key.equals("accounts") || key.equals("folders") ? "{}" : settings.getString(key)); }
+                if (STRINGS.contains(key)) {
+                    JSONObject values = new JSONObject(key.equals("accounts") || key.equals("folders") ? "{}" : settings.getString(key));
+                    if (key.equals(AccountRepository.PROFILE_INDICATOR_COLORS)) {
+                        Iterator<String> profiles = values.keys();
+                        while (profiles.hasNext()) {
+                            String profile = profiles.next();
+                            Object color = values.get(profile);
+                            if (!accounts.contains(profile) || !("yellow".equals(color) || "red".equals(color)))
+                                throw new IOException("Cor de indicador inválida no backup.");
+                        }
+                    }
+                }
                 else if (SETS.contains(key)) {
                     JSONArray values = settings.getJSONArray(key);
                     for (int i = 0; i < values.length(); i++) requireId(values.getString(i));

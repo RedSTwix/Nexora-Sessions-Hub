@@ -93,6 +93,16 @@ public final class AvailabilitySettingsTest {
         assertNotNull(findText(settings.getWindow().getDecorView(), "Restaurar backup ZIP"));
     }
 
+    @Test public void manualYellowAppearsInNormalCardsWithoutAffectingExternalPicker() {
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        repository.cycleProfileIndicator(account);
+        View normal = ReflectionHelpers.callInstanceMethod(activity, "accountCard", from(Account.class, account));
+        View picker = ReflectionHelpers.callInstanceMethod(activity, "createAccountPickerRow", from(Account.class, account),
+                from(View.OnClickListener.class, null));
+        assertNotNull(findDescription(normal, "Perfil usado · Amarelo"));
+        assertNotNull(findDescription(picker, "Aberto com · Disponível"));
+    }
+
     private static void click(Dialog dialog, String label) {
         TextView button = findText(dialog.getWindow().getDecorView(), label);
         assertNotNull("Botão ausente: " + label, button);

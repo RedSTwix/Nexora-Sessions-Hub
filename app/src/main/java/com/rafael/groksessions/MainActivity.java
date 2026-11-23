@@ -1682,13 +1682,12 @@ public final class MainActivity extends Activity {
         boolean enabled = repository.isAvailabilityEnabledForFolder(indicator.folderId, indicator.mode);
         view.setVisibility(enabled ? View.VISIBLE : View.GONE);
         if (!enabled) return;
-        boolean available = indicator.accountId == null
-                ? repository.hasAvailableAccount(indicator.folderId, indicator.mode)
-                : repository.isAccountAvailable(indicator.accountId, indicator.mode);
-        int color = available ? COLOR_SUCCESS : Color.rgb(255, 36, 77);
-        view.setContentDescription(indicator.mode.label + (available ? " · Disponível"
-                : " · Em espera por " + repository.getAvailabilityDurationHours(indicator.mode) + " horas"));
-        view.setBackground(roundedBackground(color, 8, withAlpha(Color.WHITE, 180), 1));
+        AvailabilityStatus status = indicator.accountId == null
+                ? repository.getFolderAvailabilityStatus(indicator.folderId, indicator.mode)
+                : repository.getAvailabilityStatus(indicator.accountId, indicator.mode);
+        view.setContentDescription(indicator.mode.label + " · "
+                + status.description(repository.getAvailabilityDurationHours(indicator.mode)));
+        view.setBackground(roundedBackground(status.color, 8, withAlpha(Color.WHITE, 180), 1));
     }
 
     private static final class AvailabilityIndicator {

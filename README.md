@@ -81,12 +81,16 @@ O controle de disponibilidade tem dois modos independentes em **Configurações*
   Seus indicadores aparecem no seletor de pastas e contas desse fluxo. As configurações e os registros
   anteriores permanecem nesse modo.
 - **Perfil usado** registra a abertura direta de uma conta, pelo card, menu ou criação dentro do Nexora.
-  Seus indicadores aparecem na lista normal de pastas e contas. Começa sem histórico anterior.
+  Seus indicadores aparecem na lista normal de pastas e contas e no botão colorido ao lado da estrela,
+  dentro do perfil. O primeiro toque marca amarelo; os seguintes alternam vermelho, verde e amarelo.
 
 Cada modo permite definir seu tempo de espera (1–720 horas, inicialmente 12), selecionar pastas e
 **Liberar todos agora** somente para aquele modo. Abrir, configurar ou liberar um modo não altera
-o outro. O indicador fica vermelho após cada abertura controlada e volta ao verde quando o período
-termina; uma pasta fica vermelha quando todas as suas contas estão em espera naquele modo. A interface
+o outro. Abrir uma conta verde marca vermelho automaticamente. Uma marcação manual amarela ou vermelha
+permanece ao reabrir enquanto estiver no prazo. Abrir novamente ou marcar amarelo/vermelho renova o tempo;
+marcar verde libera imediatamente. Ao vencer o período, o indicador volta ao verde, inclusive com o app
+fechado. As cores e os tempos são salvos por perfil e incluídos no backup. Uma pasta fica verde se há
+conta disponível; sem contas verdes, fica amarela se há conta amarela e vermelha nos demais casos. A interface
 confere os indicadores a cada minuto enquanto está visível e ao retornar ao app. Os indicadores são
 visuais: contas vermelhas continuam acessíveis, e reabri-las renova o tempo somente do modo utilizado.
 Sessões, logins, cookies e identidades dos perfis não são alterados por essas configurações.

@@ -65,6 +65,7 @@ public final class BrowserActivity extends Activity {
     private WebFileChooser fileChooser;
     private BrowserDownloads browserDownloads;
     private SiteAssistant siteAssistant;
+    private ProfileIndicatorButton profileIndicator;
     private View fullscreenView;
     private FrameLayout fullscreenContainer;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
@@ -172,6 +173,7 @@ public final class BrowserActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (profileIndicator != null) profileIndicator.stopRefreshing();
         exitFullscreen(true);
         if (siteAssistant != null) siteAssistant.close();
         if (browserDownloads != null) browserDownloads.close();
@@ -196,7 +198,14 @@ public final class BrowserActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (profileIndicator != null) profileIndicator.startRefreshing();
+    }
+
+    @Override
     protected void onPause() {
+        if (profileIndicator != null) profileIndicator.stopRefreshing();
         if (siteAssistant != null) siteAssistant.pause();
         flushCookies();
         super.onPause();
@@ -361,6 +370,11 @@ public final class BrowserActivity extends Activity {
         bookmark.setContentDescription("Adicionar site aos atalhos deste perfil");
         bookmark.setOnClickListener(view -> addCurrentShortcut());
         titleBar.addView(bookmark, new LinearLayout.LayoutParams(dp(42), dp(38)));
+
+        profileIndicator = new ProfileIndicatorButton(this, new AccountRepository(this), profileId);
+        LinearLayout.LayoutParams indicatorParams = new LinearLayout.LayoutParams(dp(44), dp(42));
+        indicatorParams.setMargins(0, 0, dp(5), 0);
+        titleBar.addView(profileIndicator, indicatorParams);
 
         TextView shield = toolbarButton("◆");
         shield.setTextColor(COLOR_CYAN);

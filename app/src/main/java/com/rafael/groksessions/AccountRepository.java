@@ -23,6 +23,7 @@ final class AccountRepository {
     private static final String PINNED_ACCOUNTS = "pinned_accounts";
     private static final String FOLDER_STYLES = "folder_styles";
     private static final String ACCOUNT_UNAVAILABLE_UNTIL = "account_unavailable_until";
+    static final String PROFILE_INDICATOR_COLORS = "profile_indicator_colors";
     private static final int DEFAULT_AVAILABILITY_HOURS = 12;
     private static final String LEGACY_FOLDER_ID = "folder_ccntcache";
     private static final String LEGACY_FOLDER_NAME = "ccntcache";
@@ -370,20 +371,88 @@ final class AccountRepository {
         }
         try {
             JSONObject lastUsed = lastUsed(mode);
+            SharedPreferences.Editor editor = preferences.edit();
+            if (mode == AvailabilityMode.PROFILE_USED && isAccountAvailable(account.id, mode)) {
+                JSONObject colors = profileIndicatorColors();
+                colors.remove(account.id);
+                editor.putString(PROFILE_INDICATOR_COLORS, colors.toString());
+            }
             lastUsed.put(account.id, currentTimeMillis.getAsLong());
-            preferences.edit().putString(mode.lastUsedKey, lastUsed.toString()).apply();
+            editor.putString(mode.lastUsedKey, lastUsed.toString()).apply();
         } catch (JSONException ignored) {
             // A abertura da conta continua funcionando mesmo se o indicador não puder ser salvo.
         }
     }
 
     boolean isAccountAvailable(String accountId, AvailabilityMode mode) {
+        return availabilityRemainingMillis(accountId, mode) == 0L;
+    }
+
+    long availabilityRemainingMillis(String accountId, AvailabilityMode mode) {
         try {
             long usedAt = lastUsed(mode).optLong(accountId, 0L);
             long duration = getAvailabilityDurationHours(mode) * 60L * 60L * 1000L;
-            return usedAt <= 0L || currentTimeMillis.getAsLong() - usedAt >= duration;
+            return usedAt <= 0L ? 0L : Math.max(0L, duration - (currentTimeMillis.getAsLong() - usedAt));
         } catch (JSONException ignored) {
+            return 0L;
+        }
+    }
+
+    AvailabilityStatus getAvailabilityStatus(String accountId, AvailabilityMode mode) {
+        if (isAccountAvailable(accountId, mode)) return AvailabilityStatus.GREEN;
+        if (mode == AvailabilityMode.PROFILE_USED
+                && "yellow".equals(profileIndicatorColors().optString(accountId))) return AvailabilityStatus.YELLOW;
+        return AvailabilityStatus.RED;
+    }
+
+    AvailabilityStatus nextProfileIndicatorStatus(String accountId) {
+        if (isAccountAvailable(accountId, AvailabilityMode.PROFILE_USED)) return AvailabilityStatus.YELLOW;
+        String manualColor = profileIndicatorColors().optString(accountId);
+        if ("yellow".equals(manualColor)) return AvailabilityStatus.RED;
+        if ("red".equals(manualColor)) return AvailabilityStatus.GREEN;
+        // Automatic red on entry starts the manual cycle with yellow.
+        return AvailabilityStatus.YELLOW;
+    }
+
+    boolean cycleProfileIndicator(Account account) {
+        if (!isAvailabilityEnabledForFolder(account.folderId, AvailabilityMode.PROFILE_USED)
+                || indexOfAccount(getAll(), account.id) < 0) return false;
+        try {
+            AvailabilityStatus next = nextProfileIndicatorStatus(account.id);
+            JSONObject colors = profileIndicatorColors();
+            JSONObject times = lastUsed(AvailabilityMode.PROFILE_USED);
+            if (next == AvailabilityStatus.GREEN) {
+                colors.remove(account.id);
+                times.remove(account.id);
+            } else {
+                colors.put(account.id, next == AvailabilityStatus.YELLOW ? "yellow" : "red");
+                times.put(account.id, currentTimeMillis.getAsLong());
+            }
+            preferences.edit().putString(PROFILE_INDICATOR_COLORS, colors.toString())
+                    .putString(AvailabilityMode.PROFILE_USED.lastUsedKey, times.toString()).apply();
             return true;
+        } catch (JSONException ignored) {
+            return false;
+        }
+    }
+
+    AvailabilityStatus getFolderAvailabilityStatus(String folderId, AvailabilityMode mode) {
+        List<Account> accounts = getForFolder(folderId);
+        if (accounts.isEmpty()) return AvailabilityStatus.GREEN;
+        AvailabilityStatus result = AvailabilityStatus.RED;
+        for (Account account : accounts) {
+            AvailabilityStatus status = getAvailabilityStatus(account.id, mode);
+            if (status == AvailabilityStatus.GREEN) return status;
+            if (status == AvailabilityStatus.YELLOW) result = status;
+        }
+        return result;
+    }
+
+    private JSONObject profileIndicatorColors() {
+        try {
+            return new JSONObject(preferences.getString(PROFILE_INDICATOR_COLORS, "{}"));
+        } catch (JSONException ignored) {
+            return new JSONObject();
         }
     }
 
@@ -416,6 +485,7 @@ final class AccountRepository {
     void resetAvailabilityIndicators(AvailabilityMode mode) {
         SharedPreferences.Editor editor = preferences.edit().remove(mode.lastUsedKey);
         if (mode == AvailabilityMode.OPEN_WITH) editor.remove(ACCOUNT_UNAVAILABLE_UNTIL);
+        if (mode == AvailabilityMode.PROFILE_USED) editor.remove(PROFILE_INDICATOR_COLORS);
         editor.apply();
     }
 
@@ -459,6 +529,9 @@ final class AccountRepository {
     }
 
     private void removeAccountAvailability(String accountId) {
+        JSONObject colors = profileIndicatorColors();
+        colors.remove(accountId);
+        preferences.edit().putString(PROFILE_INDICATOR_COLORS, colors.toString()).apply();
         for (AvailabilityMode mode : AvailabilityMode.values()) {
             try {
                 JSONObject lastUsed = lastUsed(mode);

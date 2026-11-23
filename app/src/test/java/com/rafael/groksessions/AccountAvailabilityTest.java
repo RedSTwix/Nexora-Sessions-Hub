@@ -38,6 +38,123 @@ public final class AccountAvailabilityTest {
 
     private Set<String> folderIds() { return Collections.singleton(folder.id); }
 
+    @Test public void automaticRedStartsManualCycleAtYellowAndManualGreenOpensRedAgain() {
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertTrue(repository.cycleProfileIndicator(account));
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertTrue(repository.cycleProfileIndicator(account));
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertTrue(repository.cycleProfileIndicator(account));
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(0L, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(AvailabilityStatus.YELLOW, repository.nextProfileIndicatorStatus(account.id));
+    }
+
+    @Test public void eachManualWaitingColorRenewsTimerAndExpiresExactlyAtItsBoundary() {
+        repository.saveAvailabilitySettings(folderIds(), 2, PROFILE_USED);
+        repository.markAccountUnavailable(account, OPEN_WITH);
+        repository.cycleProfileIndicator(account);
+        now.addAndGet(HOUR);
+        repository.cycleProfileIndicator(account);
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        now.addAndGet(2 * HOUR - 1);
+        assertEquals(1L, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        assertFalse(repository.isAccountAvailable(account.id, PROFILE_USED));
+        now.incrementAndGet();
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertFalse(repository.isAccountAvailable(account.id, OPEN_WITH));
+        repository.cycleProfileIndicator(account);
+        now.addAndGet(2 * HOUR);
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        assertEquals(AvailabilityStatus.YELLOW, repository.nextProfileIndicatorStatus(account.id));
+    }
+
+    @Test public void manualColorSurvivesRecreationRenameMoveAndReopeningButIsRemovedWithAccount() throws Exception {
+        repository.cycleProfileIndicator(account);
+        repository = new AccountRepository(context, now::get);
+        now.addAndGet(HOUR);
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(12 * HOUR, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        repository.renameAccount(account.id, "Renomeada");
+        repository.moveAccounts(Collections.singleton(account.id), repository.addFolder("Destino").id);
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        repository.remove(account.id);
+        assertFalse(new JSONObject(preferences.getString(AccountRepository.PROFILE_INDICATOR_COLORS, "{}")).has(account.id));
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertFalse(repository.cycleProfileIndicator(account));
+    }
+
+    @Test public void manualColorsAreIndependentAcrossAccountsModesAndResets() {
+        Account second = repository.add("Segunda", folder.id);
+        repository.markAccountUnavailable(account, OPEN_WITH);
+        repository.cycleProfileIndicator(account);
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, OPEN_WITH));
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(second.id, PROFILE_USED));
+        repository.resetAvailabilityIndicators(OPEN_WITH);
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        repository.markAccountUnavailable(account, OPEN_WITH);
+        repository.resetAvailabilityIndicators(PROFILE_USED);
+        assertFalse(preferences.contains(AccountRepository.PROFILE_INDICATOR_COLORS));
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, OPEN_WITH));
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        assertEquals(AvailabilityStatus.YELLOW, repository.nextProfileIndicatorStatus(account.id));
+    }
+
+    @Test public void disabledProfileFoldersCannotBeChangedManually() {
+        repository.saveAvailabilitySettings(Collections.emptySet(), 2, PROFILE_USED);
+        assertFalse(repository.cycleProfileIndicator(account));
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+    }
+
+    @Test public void folderShowsYellowOnlyWhenNoAccountIsGreenAndAtLeastOneIsYellow() {
+        Account second = repository.add("Segunda", folder.id);
+        repository.cycleProfileIndicator(account);
+        assertEquals(AvailabilityStatus.GREEN, repository.getFolderAvailabilityStatus(folder.id, PROFILE_USED));
+        repository.markAccountUnavailable(second, PROFILE_USED);
+        assertEquals(AvailabilityStatus.YELLOW, repository.getFolderAvailabilityStatus(folder.id, PROFILE_USED));
+        repository.cycleProfileIndicator(account);
+        assertEquals(AvailabilityStatus.RED, repository.getFolderAvailabilityStatus(folder.id, PROFILE_USED));
+        assertEquals(AvailabilityStatus.GREEN, repository.getFolderAvailabilityStatus(folder.id, OPEN_WITH));
+        assertEquals(AvailabilityStatus.GREEN, repository.getFolderAvailabilityStatus(repository.addFolder("Vazia").id, PROFILE_USED));
+    }
+
+    @Test public void backupRestoresManualColorAndOriginalExpirationAndAcceptsOlderData() throws Exception {
+        repository.saveAvailabilitySettings(folderIds(), 2, PROFILE_USED);
+        repository.cycleProfileIndicator(account);
+        JSONObject backup = new JSONObject(BackupSettings.export(preferences).toString());
+        preferences.edit().clear().commit();
+        now.addAndGet(HOUR);
+        BackupSettings.restore(preferences, backup);
+        repository = new AccountRepository(context, now::get);
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(HOUR, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        now.addAndGet(HOUR);
+        assertEquals(AvailabilityStatus.GREEN, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        backup.remove(AccountRepository.PROFILE_INDICATOR_COLORS);
+        now.addAndGet(-HOUR);
+        BackupSettings.restore(preferences, backup);
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+    }
+
+    @Test public void invalidBackupColorsCannotReplaceValidLocalData() throws Exception {
+        repository.cycleProfileIndicator(account);
+        JSONObject backup = BackupSettings.export(preferences);
+        for (Object color : new Object[] {"green", "blue", 7, JSONObject.NULL}) {
+            JSONObject bad = new JSONObject(backup.toString()).put(AccountRepository.PROFILE_INDICATOR_COLORS,
+                    new JSONObject().put(account.id, color).toString());
+            assertThrows(java.io.IOException.class, () -> BackupSettings.restore(preferences, bad));
+            assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        }
+        backup.put(AccountRepository.PROFILE_INDICATOR_COLORS, new JSONObject().put("missing", "yellow").toString());
+        assertThrows(java.io.IOException.class, () -> BackupSettings.restore(preferences, backup));
+    }
+
     @Test public void openingOneWayDoesNotMarkTheOtherWay() {
         repository.markAccountUnavailable(account, PROFILE_USED);
         assertFalse(repository.isAccountAvailable(account.id, PROFILE_USED));
