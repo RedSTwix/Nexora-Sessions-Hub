@@ -15,8 +15,10 @@ import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.util.ReflectionHelpers;
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicLong;
 import static com.rafael.groksessions.AvailabilityMode.*;
 import static org.junit.Assert.*;
+import static org.robolectric.Shadows.shadowOf;
 import static org.robolectric.util.ReflectionHelpers.ClassParameter.from;
 
 @RunWith(RobolectricTestRunner.class)
@@ -101,6 +103,52 @@ public final class AvailabilitySettingsTest {
                 from(View.OnClickListener.class, null));
         assertNotNull(findDescription(normal, "Perfil usado · Amarelo"));
         assertNotNull(findDescription(picker, "Aberto com · Disponível"));
+    }
+
+    @Test public void listIndicatorChangesColorWithoutOpeningProfileAndRestartsTheConfiguredTimer() {
+        long hour = 3600000L;
+        AtomicLong now = new AtomicLong(1700000000000L);
+        repository = new AccountRepository(activity, now::get);
+        ReflectionHelpers.setField(activity, "repository", repository);
+        repository.saveAvailabilitySettings(Collections.singleton(account.folderId), 2, PROFILE_USED);
+        repository.markAccountUnavailable(account, PROFILE_USED);
+        repository.markAccountUnavailable(account, OPEN_WITH);
+        now.addAndGet(hour);
+        View card = ReflectionHelpers.callInstanceMethod(activity, "accountCard", from(Account.class, account));
+        View indicator = findDescription(card, "Perfil usado · Em espera");
+        assertNotNull(indicator);
+        assertTrue(indicator.isClickable());
+        assertEquals(Math.round(48 * activity.getResources().getDisplayMetrics().density), indicator.getLayoutParams().width);
+        indicator.performClick();
+        assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(2 * hour, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        assertNotNull(findDescription(card, "Perfil usado · Amarelo"));
+        now.addAndGet(hour);
+        indicator.performClick();
+        assertEquals(AvailabilityStatus.RED, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(2 * hour, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        assertEquals(10 * hour, repository.availabilityRemainingMillis(account.id, OPEN_WITH));
+        indicator.performClick();
+        assertNotNull(findDescription(card, "Perfil usado · Disponível"));
+        assertEquals(0L, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
+        assertNull(shadowOf(activity).getNextStartedActivity());
+    }
+
+    @Test public void selectionOrganizationFoldersAndExternalPickerKeepPassiveIndicators() {
+        for (String mode : new String[] {"selectionMode", "organizeMode"}) {
+            ReflectionHelpers.setField(activity, mode, true);
+            View card = ReflectionHelpers.callInstanceMethod(activity, "accountCard", from(Account.class, account));
+            View indicator = findDescription(card, "Perfil usado · Disponível");
+            assertNotNull(indicator);
+            assertFalse(indicator.isClickable());
+            ReflectionHelpers.setField(activity, mode, false);
+        }
+        View picker = ReflectionHelpers.callInstanceMethod(activity, "createAccountPickerRow", from(Account.class, account),
+                from(View.OnClickListener.class, null));
+        assertFalse(findDescription(picker, "Aberto com · Disponível").isClickable());
+        View folder = ReflectionHelpers.callInstanceMethod(activity, "folderCard",
+                from(AccountFolder.class, repository.getFolders().get(0)));
+        assertFalse(findDescription(folder, "Perfil usado · Disponível").isClickable());
     }
 
     private static void click(Dialog dialog, String label) {

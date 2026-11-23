@@ -1659,10 +1659,20 @@ public final class MainActivity extends Activity {
     }
 
     private void addAvailabilityIndicator(LinearLayout row, String folderId, String accountId, AvailabilityMode mode) {
-        View dot = new View(this);
+        boolean editable = accountId != null && mode == AvailabilityMode.PROFILE_USED && !selectionMode && !organizeMode;
+        View dot;
+        if (editable) {
+            ProfileIndicatorButton button = new ProfileIndicatorButton(this, repository, accountId,
+                    this::refreshAvailabilityIndicators);
+            button.setTextSize(16);
+            button.setBackground(pressableBackground(Color.TRANSPARENT, Color.rgb(16, 49, 62), Color.TRANSPARENT, 12));
+            dot = button;
+        } else {
+            dot = new View(this);
+        }
         AvailabilityIndicator indicator = new AvailabilityIndicator(dot, folderId, accountId, mode);
         updateAvailabilityIndicator(indicator, dot);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(12), dp(12));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(editable ? 48 : 12), dp(editable ? 48 : 12));
         params.setMargins(dp(5), 0, dp(10), 0);
         row.addView(dot, params);
         availabilityIndicators.add(indicator);
@@ -1679,6 +1689,10 @@ public final class MainActivity extends Activity {
     }
 
     private void updateAvailabilityIndicator(AvailabilityIndicator indicator, View view) {
+        if (view instanceof ProfileIndicatorButton) {
+            ((ProfileIndicatorButton) view).refresh();
+            return;
+        }
         boolean enabled = repository.isAvailabilityEnabledForFolder(indicator.folderId, indicator.mode);
         view.setVisibility(enabled ? View.VISIBLE : View.GONE);
         if (!enabled) return;

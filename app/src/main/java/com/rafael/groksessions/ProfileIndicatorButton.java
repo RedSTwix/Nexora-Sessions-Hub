@@ -17,14 +17,20 @@ import android.widget.Toast;
 final class ProfileIndicatorButton extends TextView {
     private final AccountRepository repository;
     private final String profileId;
+    private final Runnable onChanged;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refreshTask = this::refresh;
     private boolean refreshing;
 
     ProfileIndicatorButton(Context context, AccountRepository repository, String profileId) {
+        this(context, repository, profileId, () -> {});
+    }
+
+    ProfileIndicatorButton(Context context, AccountRepository repository, String profileId, Runnable onChanged) {
         super(context);
         this.repository = repository;
         this.profileId = profileId;
+        this.onChanged = onChanged;
         setText("●");
         setTextSize(21);
         setGravity(Gravity.CENTER);
@@ -37,6 +43,7 @@ final class ProfileIndicatorButton extends TextView {
             if (account != null && !repository.cycleProfileIndicator(account))
                 Toast.makeText(context, "Não foi possível alterar o indicador.", Toast.LENGTH_SHORT).show();
             refresh();
+            this.onChanged.run();
         });
         refresh();
     }
@@ -56,7 +63,7 @@ final class ProfileIndicatorButton extends TextView {
         return null;
     }
 
-    private void refresh() {
+    void refresh() {
         handler.removeCallbacks(refreshTask);
         Account account = currentAccount();
         boolean enabled = account != null && repository.isAvailabilityEnabledForFolder(

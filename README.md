@@ -83,6 +83,8 @@ O controle de disponibilidade tem dois modos independentes em **Configurações*
 - **Perfil usado** registra a abertura direta de uma conta, pelo card, menu ou criação dentro do Nexora.
   Seus indicadores aparecem na lista normal de pastas e contas e no botão colorido ao lado da estrela,
   dentro do perfil. O primeiro toque marca amarelo; os seguintes alternam vermelho, verde e amarelo.
+  Na lista, tocar no próprio indicador também muda a cor sem abrir a conta e reinicia o mesmo tempo
+  ao marcar amarelo ou vermelho. Durante seleção ou organização, o indicador permanece apenas visual.
 
 Cada modo permite definir seu tempo de espera (1–720 horas, inicialmente 12), selecionar pastas e
 **Liberar todos agora** somente para aquele modo. Abrir, configurar ou liberar um modo não altera
