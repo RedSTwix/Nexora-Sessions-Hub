@@ -1,7 +1,7 @@
 # Nexora Sessions Hub
 
 [![build-and-release](https://img.shields.io/github/actions/workflow/status/RedSTwix/Nexora-Sessions-Hub/release.yml?branch=main&label=build-and-release&logo=github)](https://github.com/RedSTwix/Nexora-Sessions-Hub/actions/workflows/release.yml)
-[![release](https://img.shields.io/badge/release-v0.8.14-orange)](https://github.com/RedSTwix/Nexora-Sessions-Hub/releases/tag/v0.8.14)
+[![release](https://img.shields.io/badge/release-v0.8.15-orange)](https://github.com/RedSTwix/Nexora-Sessions-Hub/releases/tag/v0.8.15)
 [![licença](https://img.shields.io/github/license/RedSTwix/Nexora-Sessions-Hub?label=licen%C3%A7a&color=yellow)](LICENSE)
 
 Aplicativo Android para organizar várias contas em sessões WebView isoladas. Cada conta mantém
