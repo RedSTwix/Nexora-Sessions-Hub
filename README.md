@@ -149,10 +149,13 @@ a checagem normal do site. A checagem em uso não entra nessa quantidade. Os doi
 juntos e acompanham o backup; backups antigos usam a fila padrão de 2. Abrir as configurações pausa
 o ciclo e cancela as checagens pendentes; depois de salvar, retome pelo painel.
 
-Enquanto a checagem atual ou uma solicitação aguarda resposta, a quantidade configurada pode ser preparada.
-Com o padrão, fica uma em uso e duas antecipadas. A fila mantém a ordem de criação, mesmo se a segunda ficar pronta antes da
-primeira, e repõe a posição livre quando uma checagem assume a vez. O painel mostra quantas estão na fila
-e quantas estão prontas. Uma
+A primeira verificação do site recebe prioridade e nenhuma antecipada é iniciada até sua aprovação.
+Depois, a fila é preenchida progressivamente, criando uma checagem por etapa, sem iniciar novas
+preparações durante uma verificação atual pendente. Com o padrão, pode ficar uma em uso e duas
+antecipadas. A fila mantém a ordem de criação, mesmo se a segunda ficar pronta antes da primeira,
+e repõe gradualmente as posições livres quando uma checagem assume a vez ou expira. O painel
+atualiza a quantidade real na fila, quantas estão prontas e quantas aprovações antecipadas já
+foram utilizadas; a fila cheia naturalmente volta a mostrar o total configurado. Uma
 aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações
 expiradas ou de outro contexto são descartadas. Se a preparação estiver pronta, sua aprovação é usada
 na próxima solicitação. Se ainda estiver pendente quando chegar sua vez, a mesma checagem é exibida
