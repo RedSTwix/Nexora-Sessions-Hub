@@ -367,7 +367,9 @@
         : prepared?.needsInteraction ? 'Próxima checagem aguardará sua interação'
         : prepared?.preparing ? 'Preparando a próxima checagem'
         : machine.active ? 'Antecipação da próxima checagem ligada' : 'A antecipação acompanha a repetição';
-      const queueSummary = queueSize > 0 && prepared ? `Fila: ${prepared.queued}/${queueSize} antecipadas · ${prepared.readyCount} ${prepared.readyCount === 1 ? 'pronta' : 'prontas'}` : '';
+      const queueSummary = queueSize > 0 && prepared
+        ? `Fila: ${prepared.queued}/${queueSize} antecipadas · ${prepared.readyCount} ${prepared.readyCount === 1 ? 'pronta' : 'prontas'} · ${prepared.used} ${prepared.used === 1 ? 'utilizada' : 'utilizadas'}${prepared.firstCheckPriority ? ' · primeira checagem tem prioridade' : ''}`
+        : '';
       const preparation = [currentCheck,nextCheck,queueSummary].filter(Boolean).join(' · ');
       const view = JSON.stringify([title,detail,machine.phase,machine.active,preparation]);
       if (view === previousView) return; previousView = view;

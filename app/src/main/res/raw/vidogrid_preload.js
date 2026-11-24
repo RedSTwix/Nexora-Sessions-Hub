@@ -11,7 +11,18 @@
   let capacity=root.__nexoraSiteAssistant?.queueSize?.()??2;
   if(!Number.isInteger(capacity)||capacity<0||capacity>10)capacity=2;
   const prepared=[],events=[],ownedWidgets=new Set();
+  // Keep the first site verification free of competing prepared widgets.
+  // After its approval, stage just one new entry at a time, including refills.
+  const PREPARE_STEP_MS=350;
+  let firstApproved=false,firstPrepared=false,prepareTimer=null;
   const enabled=()=>!stopped&&!!window.__nexoraVidoAssistant?.isActive?.();
+  function cancelPrepareTimer(){
+    if(prepareTimer!==null){clearTimeout(prepareTimer);prepareTimer=null;}
+  }
+  function canPrepare(){
+    return enabled()&&firstApproved&&!!configTemplate&&prepared.length<capacity
+      &&!current&&ownedWidgets.size===0;
+  }
   const record=type=>{events.push({type,at:Math.round(performance.now())});if(events.length>80)events.shift();
     root.dispatchEvent(new Event('nexora-vidogrid-change'));};
   function remove(item){
@@ -24,6 +35,7 @@
       item.panelParent.insertBefore(item.panel,item.panelNext?.parentNode===item.panelParent?item.panelNext:null);
     if(item.host.open)item.host.close();
     item.host.remove();
+    if(position!==-1)queueMicrotask(prepare);
   }
   function requestInteraction(item){
     item.needsInteraction=true;record('interaction-required');
@@ -52,6 +64,7 @@
   }
   function assign(item,config,receiver){
     if(current||!item.host.isConnected)return false;
+    cancelPrepareTimer();
     item.consumer=config;item.receiver=receiver;current=item;
     prepared.splice(prepared.indexOf(item),1);record('prepared-widget-assigned');
     if(!item.approval)reveal(item);
@@ -70,8 +83,17 @@
     finally{remove(item);queueMicrotask(prepare);}
   }
   function prepare(){
-    if(!enabled()||!configTemplate)return;
-    while(enabled()&&prepared.length<capacity){if(!prepareOne())break;}
+    if(!canPrepare()||prepareTimer!==null)return;
+    if(!firstPrepared){
+      firstPrepared=true;
+      if(!prepareOne())return;
+    }
+    if(!canPrepare())return;
+    prepareTimer=setTimeout(()=>{
+      prepareTimer=null;
+      if(!canPrepare())return;
+      if(prepareOne())prepare();
+    },PREPARE_STEP_MS);
   }
   function prepareOne(){
     const host=document.createElement('dialog');
@@ -117,12 +139,14 @@
       record('invalid-precheck-fallback-to-site');
       remove(item);
     }
+    cancelPrepareTimer();
     const owned={id:null,selector,cancelled:false};
     ownedWidgets.add(owned);
     const options={...config,callback:function(...values){
       if(owned.cancelled||!enabled())return;
       ownedWidgets.delete(owned);
       const result=Reflect.apply(config.callback,this,values);
+      firstApproved=true;
       record('normal-approval-delivered');queueMicrotask(prepare);return result;
     }};
     try{owned.id=Reflect.apply(target,receiver,[selector,options,...args.slice(2)]);queueMicrotask(prepare);return owned.id;}
@@ -150,6 +174,8 @@
     close?.click();
   }
   function cancelPending(){
+    cancelPrepareTimer();
+    firstApproved=false;firstPrepared=false;
     const hadDialog=!!current||ownedWidgets.size>0;
     if(current)remove(current);
     for(const item of [...prepared])remove(item);
@@ -165,11 +191,13 @@
     if(value===capacity)return true;
     capacity=value;
     while(prepared.length>capacity)remove(prepared[prepared.length-1]);
+    if(capacity===0)cancelPrepareTimer();
     prepare();record('queue-capacity-changed');return true;
   }
   const timer=setInterval(sync,500);
   function status(){const next=prepared[0];return {installed:true,enabled:enabled(),created,ready,used,expired,
     queueCapacity:capacity,queued:prepared.length,readyCount:prepared.filter(item=>!!item.approval).length,
+    firstCheckPriority:enabled()&&!firstApproved&&capacity>0,refillScheduled:prepareTimer!==null,
     queue:prepared.map(item=>({approvalReady:!!item.approval,needsInteraction:item.needsInteraction})),
     preparing:!!next&&!next.approval,approvalReady:!!next?.approval,assigned:!!current,
     awaitingSiteVerification:ownedWidgets.size>0,
