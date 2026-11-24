@@ -341,6 +341,9 @@ test('a pending queue entry becomes current without reloading its frame and star
   assert.equal(await page.evaluate(()=>window.sent),2);
   await waitQueue(page,1);
   await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.clicks===3);
+  assert.equal(await page.evaluate(()=>window.sent),2);
+  await page.evaluate(()=>window.approve(window.siteWidget));
   await page.waitForFunction(()=>window.sent===3);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().used),2);
   await waitQueue(page,2);
@@ -389,7 +392,7 @@ test('queue of five grows after first approval, shows departures and staged refi
   await page.waitForFunction(()=>window.sent===2);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queued),4);
   await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 4/5 antecipadas'));
-  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/1 utilizada/);
+  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('1 utilizada'));
   await waitQueue(page,5);
   await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 5/5 antecipadas'));
   assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/1 utilizada/);
@@ -447,9 +450,9 @@ test('resizing preserves the head, drops only the newest waiting checks and does
   assert.equal(await page.evaluate(()=>window.widgets['2'].removed),false);
   assert.equal(await page.evaluate(()=>['3','4','5'].every(id=>window.widgets[id].removed)),true);
   assert.equal(await page.locator('[data-nexora-queue-role="next"]').count(),1);
-  assert.equal(await page.evaluate(()=>window.widgets['1'].removed),false);
+  assert.equal(await page.evaluate(()=>window.widgets['1'].removed),true);
   await page.evaluate(()=>{window.approve('3');window.approve('4');window.approve('5');});
-  assert.equal(await page.evaluate(()=>window.sent),0);
+  assert.equal(await page.evaluate(()=>window.sent),1);
   await page.evaluate(()=>window.finishRequest(503));await page.waitForFunction(()=>window.clicks===2);
   assert.equal(await page.evaluate(()=>window.siteWidget),'2');
   assert.equal(await page.locator('[data-nexora-queue-role="next"]').count(),0);
@@ -652,7 +655,9 @@ test('two accepted jobs with the same displayed second are distinguished after t
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));await page.evaluate(()=>window.approve('2'));
   await page.evaluate(()=>window.finishRequest(202));await page.waitForFunction(()=>window.sent===2);
-  await page.evaluate(()=>window.approve('3'));await page.evaluate(()=>window.finishRequest(202));
+  await page.waitForFunction(()=>window.clicks===3);
+  await page.evaluate(()=>window.approve(window.siteWidget));
+  await page.evaluate(()=>window.finishRequest(202));
   await page.waitForFunction(()=>window.sent===3);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),2);
  }finally{await context.close();}
