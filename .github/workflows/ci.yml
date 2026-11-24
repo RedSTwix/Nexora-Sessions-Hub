@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NEXORA_MAVEN_MIRROR: google
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

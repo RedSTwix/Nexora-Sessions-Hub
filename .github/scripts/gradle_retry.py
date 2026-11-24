@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 MAVEN_RATE_LIMIT = re.compile(
-    r"Could not (?:GET|HEAD).*https://(?:repo\.maven\.apache\.org|repo1\.maven\.org)/"
+    r"Could not (?:GET|HEAD).*https://(?:repo\.maven\.apache\.org|repo1\.maven\.org|maven-central\.storage-download\.googleapis\.com)/"
     r".*Received status code 429\b",
     re.IGNORECASE,
 )

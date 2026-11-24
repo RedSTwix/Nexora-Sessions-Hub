@@ -5,8 +5,13 @@ um push na branch `main`. Ele lê `versionName` de `app/build.gradle.kts`, compi
 valida a assinatura, gera SHA-256, cria a tag `vX.Y.Z` e publica a release. Se essa tag já existir,
 o workflow termina sem republicar a mesma versão.
 
-CI e release repetem o comando Gradle somente quando o download de uma dependência do Maven
-Central falha com HTTP 429. São até três tentativas, com esperas de 20 e 40 segundos. Outras
+CI e release usam o [espelho público do Maven Central mantido pelo Google](https://docs.cloud.google.com/docs/buildpacks/java#google_cloud_hosted_maven_central_mirror)
+para plugins, dependências e jars de execução do Robolectric. O workflow ativa essa configuração
+com `NEXORA_MAVEN_MIRROR=google`; compilações locais mantêm os repositórios padrão se a variável
+não estiver definida. Nenhuma versão de dependência é alterada por essa escolha.
+
+Os workflows repetem o comando Gradle somente quando o download de uma dependência do Maven
+Central ou do espelho falha com HTTP 429. São até três tentativas, com esperas de 20 e 40 segundos. Outras
 falhas, incluindo testes e compilação, mantêm a interrupção normal do workflow.
 
 ## Preparar a chave de assinatura

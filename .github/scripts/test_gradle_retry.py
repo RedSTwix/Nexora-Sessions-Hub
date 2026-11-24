@@ -42,6 +42,9 @@ class GradleRetryTest(unittest.TestCase):
         self.assertTrue(MAVEN_RATE_LIMIT.search(
             "> Could not GET 'https://repo.maven.apache.org/maven2/org/robolectric/runtime.jar'. "
             "Received status code 429 from server: Too Many Requests"))
+        self.assertTrue(MAVEN_RATE_LIMIT.search(
+            "> Could not GET 'https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/runtime.jar'. "
+            "Received status code 429 from server: Too Many Requests"))
         for line in ["Test failed: expected status code 429", "Received status code 503",
                      "Could not GET 'https://unrelated.test/file'. Received status code 429"]:
             self.assertFalse(MAVEN_RATE_LIMIT.search(line))

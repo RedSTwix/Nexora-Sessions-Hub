@@ -58,6 +58,14 @@ android {
 
 }
 
+// Robolectric resolves its Android runtime jars separately from Gradle repositories.
+if (System.getenv("NEXORA_MAVEN_MIRROR") == "google") {
+    tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+        systemProperty("robolectric.dependency.repo.id", "google-maven-central")
+        systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/")
+    }
+}
+
 dependencies {
     implementation("androidx.core:core:1.17.0")
     implementation("androidx.webkit:webkit:1.17.0")
