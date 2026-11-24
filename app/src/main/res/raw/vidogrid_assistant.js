@@ -360,7 +360,8 @@
         : prepared?.needsInteraction ? 'Próxima checagem aguardará sua interação'
         : prepared?.preparing ? 'Preparando a próxima checagem'
         : machine.active ? 'Antecipação da próxima checagem ligada' : 'A antecipação acompanha a repetição';
-      const preparation = [currentCheck,nextCheck].filter(Boolean).join(' · ');
+      const queueSummary = prepared?.queued ? `Fila: ${prepared.queued}/${prepared.queueCapacity} antecipadas · ${prepared.readyCount} prontas` : '';
+      const preparation = [currentCheck,nextCheck,queueSummary].filter(Boolean).join(' · ');
       const view = JSON.stringify([title,detail,machine.phase,machine.active,preparation]);
       if (view === previousView) return; previousView = view;
       $('#title').textContent = title; $('#detail').textContent = detail;

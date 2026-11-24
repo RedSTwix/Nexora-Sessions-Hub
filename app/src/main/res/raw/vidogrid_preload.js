@@ -7,15 +7,16 @@
   const api=window.turnstile;
   if(!api||typeof api.render!=='function')return {installed:false};
   const originalRender=api.render,originalRemove=api.remove;
-  let prepared=null,current=null,configTemplate=null,stopped=false,created=0,used=0,ready=0,expired=0,cancelledChecks=0,cancelledReason='';
-  const events=[],ownedWidgets=new Set();
+  let current=null,configTemplate=null,stopped=false,created=0,used=0,ready=0,expired=0,cancelledChecks=0,cancelledReason='';
+  const capacity=2,prepared=[],events=[],ownedWidgets=new Set();
   const enabled=()=>!stopped&&!!window.__nexoraVidoAssistant?.isActive?.();
   const record=type=>{events.push({type,at:Math.round(performance.now())});if(events.length>80)events.shift();
     root.dispatchEvent(new Event('nexora-vidogrid-change'));};
   function remove(item){
     if(!item||item.removed)return;
     item.removed=true;item.approval=null;
-    if(prepared===item)prepared=null;if(current===item)current=null;
+    const position=prepared.indexOf(item);if(position!==-1)prepared.splice(position,1);
+    if(current===item)current=null;
     try{if(item.id)Reflect.apply(originalRemove,api,[item.id]);}catch{}
     if(item.panel?.parentElement===item.host&&item.panelParent?.isConnected)
       item.panelParent.insertBefore(item.panel,item.panelNext?.parentNode===item.panelParent?item.panelNext:null);
@@ -49,7 +50,8 @@
   }
   function assign(item,config,receiver){
     if(current||!item.host.isConnected)return false;
-    item.consumer=config;item.receiver=receiver;current=item;prepared=null;record('prepared-widget-assigned');
+    item.consumer=config;item.receiver=receiver;current=item;
+    prepared.splice(prepared.indexOf(item),1);record('prepared-widget-assigned');
     if(!item.approval)reveal(item);
     queueMicrotask(()=>{deliver(item);prepare();});
     return true;
@@ -62,12 +64,14 @@
     }
     const approval=item.approval,callback=item.consumer.callback;
     item.approval=null;item.delivered=true;used++;record('prepared-approval-delivered');
-    if(prepared===item)prepared=null;
     try{Reflect.apply(callback,item.receiver,approval);}
     finally{remove(item);queueMicrotask(prepare);}
   }
   function prepare(){
-    if(!enabled()||!configTemplate||prepared)return;
+    if(!enabled()||!configTemplate)return;
+    while(enabled()&&prepared.length<capacity){if(!prepareOne())break;}
+  }
+  function prepareOne(){
     const host=document.createElement('dialog');
     host.dataset.nexoraPrecheck='true';
     host.dataset.nexoraQueueRole='next';
@@ -78,7 +82,7 @@
     const pause=()=>root.__nexoraVidoAssistant?.pause();
     host.addEventListener('cancel',event=>{event.preventDefault();pause();});
     const item={host,id:null,approval:null,consumer:null,receiver:null,delivered:false,removed:false,visible:false,needsInteraction:false};
-    prepared=item;created++;record('preparation-started');
+    prepared.push(item);created++;record('preparation-started');
     // A separate normal widget performs its own verification on this same page.
     // Only a fresh genuine approval is passed once to the next normal site submission.
     const options={...configTemplate,callback:function(...values){
@@ -95,19 +99,19 @@
       fail(item,'atingiu o tempo permitido pelo site','timeout-callback',args);}};
     item.options=options;
     try{item.id=Reflect.apply(originalRender,api,[container,options]);}
-    catch{record('preparation-failed');remove(item);}
+    catch{record('preparation-failed');remove(item);return false;}
+    if(item.removed){try{if(item.id)Reflect.apply(originalRemove,api,[item.id]);}catch{}return false;}
+    return true;
   }
   const wrappedRender=new Proxy(originalRender,{apply(target,receiver,args){
     const [selector,config]=args;
     if(!enabled()||selector!=='#grok-turnstile-modal'||!config||typeof config.callback!=='function')return Reflect.apply(target,receiver,args);
     configTemplate={...config};
-    const item=prepared;
-    const sameContext=item&&['sitekey','action','cData','chlPageData'].every(key=>item.options[key]===config[key]);
-    if(item&&!item.removed&&item.id&&sameContext&&!(typeof api.isExpired==='function'&&api.isExpired(item.id))
-      &&assign(item,config,receiver)){
-      return item.id;
-    }
-    if(item){
+    while(prepared.length){
+      const item=prepared[0];
+      const sameContext=['sitekey','action','cData','chlPageData'].every(key=>item.options[key]===config[key]);
+      if(!item.removed&&item.id&&sameContext&&!(typeof api.isExpired==='function'&&api.isExpired(item.id))
+        &&assign(item,config,receiver))return item.id;
       record('invalid-precheck-fallback-to-site');
       remove(item);
     }
@@ -146,7 +150,7 @@
   function cancelPending(){
     const hadDialog=!!current||ownedWidgets.size>0;
     if(current)remove(current);
-    if(prepared)remove(prepared);
+    for(const item of [...prepared])remove(item);
     for(const item of ownedWidgets){item.cancelled=true;try{if(item.id)api.remove(item.id);}catch{}}
     ownedWidgets.clear();
     if(hadDialog)closeSiteDialog();
@@ -155,11 +159,13 @@
     if(!enabled())cancelPending();
   }
   const timer=setInterval(sync,500);
-  function status(){return {installed:true,enabled:enabled(),created,ready,used,expired,
-    preparing:!!prepared&&!prepared.approval,approvalReady:!!prepared?.approval,assigned:!!current,
+  function status(){const next=prepared[0];return {installed:true,enabled:enabled(),created,ready,used,expired,
+    queueCapacity:capacity,queued:prepared.length,readyCount:prepared.filter(item=>!!item.approval).length,
+    queue:prepared.map(item=>({approvalReady:!!item.approval,needsInteraction:item.needsInteraction})),
+    preparing:!!next&&!next.approval,approvalReady:!!next?.approval,assigned:!!current,
     awaitingSiteVerification:ownedWidgets.size>0,
     interactionVisible:!!current?.visible,currentNeedsInteraction:!!current?.needsInteraction,
-    needsInteraction:!!prepared?.needsInteraction,events:[...events]};}
+    needsInteraction:!!next?.needsInteraction,events:[...events]};}
   function restore(){stopped=true;clearInterval(timer);if(api.render===wrappedRender)api.render=originalRender;
     cancelPending();
     if(api.remove===wrappedRemove)api.remove=originalRemove;

@@ -139,7 +139,10 @@ Quando um 503 antigo permanece sem confirmação de nova resposta por 90 segundo
 segurança, sem reenviar uma solicitação incerta. O envio automático exige custo zero e é
 pausado se o formulário mudar, a página sair de foco ou o site apresentar outra falha.
 
-Enquanto a checagem atual ou uma solicitação aguarda resposta, uma única próxima checagem pode ser preparada. Uma
+Enquanto a checagem atual ou uma solicitação aguarda resposta, até duas próximas checagens podem ser preparadas:
+uma em uso e duas antecipadas. A fila mantém a ordem de criação, mesmo se a segunda ficar pronta antes da
+primeira, e repõe a posição livre quando uma checagem assume a vez. O painel mostra quantas estão na fila
+e quantas estão prontas. Uma
 aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações
 expiradas ou de outro contexto são descartadas. Se a preparação estiver pronta, sua aprovação é usada
 na próxima solicitação. Se ainda estiver pendente quando chegar sua vez, a mesma checagem é exibida
@@ -148,8 +151,8 @@ solicitadas pela verificação continuam manuais. Os controles do painel permane
 a checagem, e a validação e os limites do site continuam necessários. O painel agrupa as atualizações
 e acompanha os elementos relevantes da página para reduzir o trabalho durante as animações.
 
-**Pausar repetição** cancela a checagem pendente do assistente. Fechar pelo **X** ou pelo **◆**
-também encerra o painel, descarta a preparação e remove seus observadores e callbacks. Uma
+**Pausar repetição** cancela a checagem em uso e todas as antecipadas do assistente. Fechar pelo **X** ou pelo **◆**
+também encerra o painel, descarta toda a fila e remove seus observadores e callbacks. Uma
 solicitação já recebida pelo servidor pode continuar. Reabrir o painel ou recarregar a página
 começa pausado. O limite configurado fica salvo no Android, separado por perfil, e acompanha o
 backup e a restauração; ele não depende dos cookies do site. A contagem do ciclo, as aprovações
