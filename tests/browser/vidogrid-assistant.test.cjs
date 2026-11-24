@@ -456,13 +456,14 @@ test('the initial verification takes priority; later checks join the queue gradu
 for(const failure of ['expired-callback','error-callback','timeout-callback'])test(`${failure}: a failed current verification pauses and discards the current and both waiting entries`,async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
+  await waitQueue(page,2);
   await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.__nexoraVidoPreload.status().assigned);
   await page.evaluate(name=>window.widgets['2'].config[name](),failure);
   await page.waitForFunction(()=>!window.__nexoraVidoAssistant.status().active);
   assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
-  assert.equal(await page.evaluate(()=>['2','3','4'].every(id=>window.widgets[id].removed)),true);
-  await page.evaluate(()=>{window.approve('2');window.approve('3');window.approve('4');});
+  assert.equal(await page.evaluate(()=>['2','3'].every(id=>window.widgets[id].removed)),true);
+  await page.evaluate(()=>{window.approve('2');window.approve('3');});
   assert.equal(await page.evaluate(()=>window.sent),1);
   assert.match(await page.evaluate(()=>window.__nexoraVidoAssistant.status().reason),/checagem da vez/);
  }finally{await context.close();}
@@ -470,6 +471,7 @@ for(const failure of ['expired-callback','error-callback','timeout-callback'])te
 for(const action of ['pause','close','navigate'])test(`${action}: existing panel controls or navigation cancel all three checks while the promoted widget is visible`,async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
+  await waitQueue(page,2);
   await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.__nexoraVidoPreload.status().assigned);
   assert.equal(await page.locator('[data-nexora-queue-role="current"] button').count(),0);
@@ -483,8 +485,8 @@ for(const action of ['pause','close','navigate'])test(`${action}: existing panel
   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant?.status().active??false),false);
   assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
   assert.equal(await page.evaluate(()=>document.querySelector('#modal').hidden),true);
-  assert.equal(await page.evaluate(()=>['2','3','4'].every(id=>window.widgets[id].removed)),true);
-  await page.evaluate(()=>{window.approve('2');window.approve('3');window.approve('4');});
+  assert.equal(await page.evaluate(()=>['2','3'].every(id=>window.widgets[id].removed)),true);
+  await page.evaluate(()=>{window.approve('2');window.approve('3');});
   assert.equal(await page.evaluate(()=>window.sent),1);
   if(action==='pause')assert.equal(await page.evaluate(()=>document.getElementById('nexora-vidogrid-assistant').parentElement===document.documentElement),true);
  }finally{await context.close();}
@@ -525,7 +527,7 @@ test('pausing and editing the form discard unused approval without hiding the pa
 });
 test('an expired head is discarded and the second queued verification keeps its place',async()=>{
  const {context,page}=await open();try{
-  await activate(page);await page.evaluate(()=>window.approve('1'));await page.evaluate(()=>window.approve('2'));
+  await activate(page);await page.evaluate(()=>window.approve('1'));await waitQueue(page,2);await page.evaluate(()=>window.approve('2'));
   await page.evaluate(()=>window.expire('2'));await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.clicks===2);
   assert.equal(await page.evaluate(()=>window.siteWidget),'3');
@@ -537,6 +539,7 @@ test('an expired head is discarded and the second queued verification keeps its 
 test('a ready second entry cannot overtake the first and both positions are replenished in FIFO order',async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
+  await waitQueue(page,2);
   await page.waitForFunction(()=>window.widgets['3'].frame.contentDocument?.body.textContent.includes('Fixture'));
   await page.evaluate(()=>{window.widgets['3'].frame.contentWindow.queueMarker='second';window.approve('3');});
   assert.equal(await page.evaluate(()=>window.sent),1);
@@ -547,7 +550,7 @@ test('a ready second entry cannot overtake the first and both positions are repl
   assert.equal(await page.evaluate(()=>window.siteWidget),'2');
   assert.equal(await page.evaluate(()=>window.sent),1);
   assert.equal(await page.locator('[data-nexora-queue-role="current"]').count(),1);
-  assert.equal(await page.locator('[data-nexora-queue-role="next"]').count(),2);
+  assert.equal(await page.locator('[data-nexora-queue-role="next"]').count(),1);
   assert.equal(await page.evaluate(()=>window.widgets['3'].frame.contentWindow.queueMarker),'second');
   await page.evaluate(()=>window.approve('2'));
   assert.equal(await page.evaluate(()=>window.sent),2);
@@ -555,7 +558,7 @@ test('a ready second entry cannot overtake the first and both positions are repl
   await page.waitForFunction(()=>window.sent===3);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().used),2);
   assert.equal(await page.evaluate(()=>window.widgets['3'].removed),true);
-  assert.equal(await page.locator('[data-nexora-queue-role="next"]').count(),2);
+  await waitQueue(page,2);
   await page.evaluate(()=>{window.approve('2');window.approve('3');});
   assert.equal(await page.evaluate(()=>window.sent),3);
   await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 2/2 antecipadas'));
@@ -565,7 +568,8 @@ test('a ready second entry cannot overtake the first and both positions are repl
 
 test('two ready entries stay held until separate outcomes and are each consumed only once',async()=>{
  const {context,page}=await open();try{
-  await activate(page);await page.evaluate(()=>{window.approve('1');window.approve('2');window.approve('3');});
+  await activate(page);await page.evaluate(()=>window.approve('1'));await waitQueue(page,2);
+  await page.evaluate(()=>{window.approve('2');window.approve('3');});
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().readyCount),2);
   assert.equal(await page.evaluate(()=>window.sent),1);
   await page.evaluate(()=>window.finishRequest(503));await page.waitForFunction(()=>window.sent===2);
@@ -582,6 +586,7 @@ test('two ready entries stay held until separate outcomes and are each consumed 
 test('when both waiting entries expire the next request uses a fresh original verification',async()=>{
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));
+  await waitQueue(page,2);
   await page.evaluate(()=>{window.expire('2');window.expire('3');});
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queued),0);
   await page.evaluate(()=>window.finishRequest(503));await page.waitForFunction(()=>window.clicks===2);
@@ -702,7 +707,8 @@ test('existing jobs, stale displayed metadata and a failed server job do not bec
 test('a newly returned non-503 failure pauses instead of consuming the next prepared check',async()=>{
  const {context,page}=await open();try{
   await installSiteJobState(page);await activate(page);
-  await page.evaluate(()=>{window.approve('1');window.approve('2');});
+  await page.evaluate(()=>window.approve('1'));
+  await page.evaluate(()=>window.approve('2'));
   await page.evaluate(()=>{
    window.fixtureJobStore.textToVideoResult={uuid:'rejected-job',status:-2};
    document.querySelector('#generate').disabled=false;
