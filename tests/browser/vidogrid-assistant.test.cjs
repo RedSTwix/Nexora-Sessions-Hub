@@ -22,7 +22,11 @@ async function open(url='https://vidogrid.ai/app/video-gen/grok',init='',limit=5
  const page=await context.newPage();await page.goto(url);
  return {context,page};
 }
-$1
+async function activate(page){
+ assert.equal(await page.evaluate(()=>window.__nexoraSiteAssistant.toggle()),true);
+ await page.evaluate(()=>window.__nexoraVidoAssistant.toggle());
+ assert.equal(await page.evaluate(()=>window.clicks),1);
+}
 async function waitQueue(page,count=2){
  await page.waitForFunction(count=>window.__nexoraVidoPreload?.status().queued===count,count,{timeout:6000});
 }
