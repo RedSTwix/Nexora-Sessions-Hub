@@ -200,3 +200,46 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/cleanup_releases.py --keep 10 --apply
+
+  update-readme:
+    name: Atualizar selo da release no README
+    needs: [publish, cleanup]
+    if: always() && !cancelled() && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Baixar a versão atual da branch principal
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Validar atualização do selo
+        run: python3 -m unittest discover -s .github/scripts -p 'test_release_badge.py'
+
+      - name: Atualizar e enviar somente o selo da release publicada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --ff-only origin main
+          python3 .github/scripts/update_release_badge.py
+          if git diff --quiet -- README.md; then
+            echo "O selo já aponta para a release publicada."
+            exit 0
+          fi
+          git add -- README.md
+          git commit -m "docs(readme): atualize selo da release publicada [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              exit 1
+            fi
+            git pull --rebase origin main
+          done

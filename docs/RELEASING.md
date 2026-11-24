@@ -19,6 +19,12 @@ python -B .github/scripts/cleanup_releases.py --repo RedSTwix/Nexora-Sessions-Hu
 
 O script só executa exclusões com `--apply`; o workflow usa essa opção automaticamente.
 
+No final, um job atualiza o selo `release` no README usando a última release estável publicada
+que já tenha seu APK disponível. O selo mostra a versão explícita (por exemplo, `v0.8.14`) e
+leva à página dessa versão, sem depender da consulta dinâmica de versão do Shields. O bot altera
+somente essa linha e não cria commit quando o selo já está correto. O envio usa `GITHUB_TOKEN`
+e `[skip ci]`, evitando uma nova execução de CI/release pelo próprio ajuste do README.
+
 CI e release usam o [espelho público do Maven Central mantido pelo Google](https://docs.cloud.google.com/docs/buildpacks/java#google_cloud_hosted_maven_central_mirror)
 para plugins, dependências e jars de execução do Robolectric. O workflow ativa essa configuração
 com `NEXORA_MAVEN_MIRROR=google`; compilações locais mantêm os repositórios padrão se a variável
