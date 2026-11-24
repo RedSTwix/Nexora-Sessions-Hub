@@ -423,6 +423,7 @@ test('a saved queue size is applied on activation and survives panel reopening i
   assert.equal(await page.evaluate(()=>window.__nexoraSiteAssistant.queueSize()),4);
   await page.evaluate(()=>window.__nexoraSiteAssistant.hide());
   assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
+  await page.evaluate(()=>window.finishRequest(503));
   await page.evaluate(()=>{window.__nexoraSiteAssistant.toggle();window.__nexoraVidoAssistant.toggle();});
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queueCapacity),4);
   assert.equal(await page.locator('[data-nexora-queue-role="next"]').count(),0);
