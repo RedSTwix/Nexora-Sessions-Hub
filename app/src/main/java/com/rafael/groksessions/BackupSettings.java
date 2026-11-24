@@ -28,7 +28,7 @@ final class BackupSettings {
                 Object value = entry.getValue();
                 if (STRINGS.contains(key) || key.startsWith("profile_shortcuts_")) result.put(key, value);
                 else if (SETS.contains(key)) result.put(key, new JSONArray((Set<?>) value));
-                else if (INTS.contains(key) || key.startsWith(SiteAssistantSettings.LIMIT_PREFIX)) result.put(key, value);
+                else if (INTS.contains(key) || SiteAssistantSettings.isPreferenceKey(key)) result.put(key, value);
             }
             validate(result);
             return result;
@@ -76,11 +76,13 @@ final class BackupSettings {
                 } else if (INTS.contains(key)) {
                     int hours = settings.getInt(key);
                     if (hours < 1 || hours > 720) throw new IOException("Tempo de espera inválido.");
-                } else if (key.startsWith(SiteAssistantSettings.LIMIT_PREFIX)) {
-                    String profile = key.substring(SiteAssistantSettings.LIMIT_PREFIX.length());
+                } else if (SiteAssistantSettings.isPreferenceKey(key)) {
+                    boolean queue = key.startsWith(SiteAssistantSettings.QUEUE_PREFIX);
+                    String profile = key.substring((queue ? SiteAssistantSettings.QUEUE_PREFIX : SiteAssistantSettings.LIMIT_PREFIX).length());
                     requireId(profile);
                     Object value = settings.get(key);
-                    if (!accounts.contains(profile) || !(value instanceof Integer) || ((Integer) value) < 0)
+                    if (!accounts.contains(profile) || !(value instanceof Integer) || ((Integer) value) < 0
+                            || (queue && ((Integer) value) > SiteAssistantSettings.MAX_QUEUE_SIZE))
                         throw new IOException("Configuração de assistente inválida no backup.");
                 } else if (key.startsWith("profile_shortcuts_")) {
                     String profile = key.substring("profile_shortcuts_".length());
@@ -109,7 +111,7 @@ final class BackupSettings {
                     JSONArray items = settings.getJSONArray(key);
                     for (int i = 0; i < items.length(); i++) values.add(items.getString(i));
                     editor.putStringSet(key, values);
-                } else if (INTS.contains(key) || key.startsWith(SiteAssistantSettings.LIMIT_PREFIX)) editor.putInt(key, settings.getInt(key));
+                } else if (INTS.contains(key) || SiteAssistantSettings.isPreferenceKey(key)) editor.putInt(key, settings.getInt(key));
                 else editor.putString(key, settings.getString(key));
             }
         } catch (JSONException exception) { throw new IOException("Configurações inválidas.", exception); }

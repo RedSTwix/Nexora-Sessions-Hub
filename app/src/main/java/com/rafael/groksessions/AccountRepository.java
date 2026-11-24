@@ -130,7 +130,7 @@ final class AccountRepository {
         }
         removeAccountAvailability(accountId);
         preferences.edit().remove(SiteShortcutRepository.preferenceKey(accountId))
-                .remove(SiteAssistantSettings.key(accountId)).apply();
+                .remove(SiteAssistantSettings.key(accountId)).remove(SiteAssistantSettings.queueKey(accountId)).apply();
     }
 
     void renameAccount(String accountId, String newName) {

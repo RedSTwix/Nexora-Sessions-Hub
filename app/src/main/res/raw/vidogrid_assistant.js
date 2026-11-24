@@ -4,11 +4,16 @@
     if (root !== root.top || location.origin !== 'https://vidogrid.ai') return;
     if (root.__nexoraSiteAssistant) return;
     const integration = factory(root);
-    let opened = false, acceptedLimit = 5;
+    let opened = false, acceptedLimit = 5, queueSize = 2;
     const supported = () => /^\/app\/video-gen(?:\/grok)?\/?$/.test(location.pathname);
     const controller = {
       visible: () => opened && !!root.__nexoraVidoAssistant,
       acceptedLimit: () => acceptedLimit,
+      queueSize: () => queueSize,
+      setQueueSize(value) {
+        if (!Number.isInteger(value) || value < 0 || value > 10) return false;
+        queueSize = value; root.__nexoraVidoPreload?.setCapacity(value); return true;
+      },
       setAcceptedLimit(value) {
         if (!Number.isInteger(value) || value < 0 || value > 2147483647) return false;
         acceptedLimit = value; root.__nexoraVidoAssistant?.setAcceptedLimit(value); return true;
@@ -356,11 +361,13 @@
       const currentCheck = prepared?.assigned ? (prepared.currentNeedsInteraction
         ? 'Checagem da vez · aguardando sua interação' : 'Checagem antecipada em uso')
         : prepared?.awaitingSiteVerification ? 'Verificação normal do site em andamento' : '';
-      const nextCheck = prepared?.approvalReady ? 'Próxima checagem pronta · aguardando a solicitação atual'
+      const queueSize = prepared?.queueCapacity ?? root.__nexoraSiteAssistant?.queueSize() ?? 2;
+      const nextCheck = queueSize === 0 ? 'Antecipação desligada · usando a checagem normal do site'
+        : prepared?.approvalReady ? 'Próxima checagem pronta · aguardando a solicitação atual'
         : prepared?.needsInteraction ? 'Próxima checagem aguardará sua interação'
         : prepared?.preparing ? 'Preparando a próxima checagem'
         : machine.active ? 'Antecipação da próxima checagem ligada' : 'A antecipação acompanha a repetição';
-      const queueSummary = prepared?.queued ? `Fila: ${prepared.queued}/${prepared.queueCapacity} antecipadas · ${prepared.readyCount} prontas` : '';
+      const queueSummary = queueSize > 0 && prepared ? `Fila: ${prepared.queued}/${queueSize} antecipadas · ${prepared.readyCount} ${prepared.readyCount === 1 ? 'pronta' : 'prontas'}` : '';
       const preparation = [currentCheck,nextCheck,queueSummary].filter(Boolean).join(' · ');
       const view = JSON.stringify([title,detail,machine.phase,machine.active,preparation]);
       if (view === previousView) return; previousView = view;

@@ -139,8 +139,14 @@ Quando um 503 antigo permanece sem confirmação de nova resposta por 90 segundo
 segurança, sem reenviar uma solicitação incerta. O envio automático exige custo zero e é
 pausado se o formulário mudar, a página sair de foco ou o site apresentar outra falha.
 
-Enquanto a checagem atual ou uma solicitação aguarda resposta, até duas próximas checagens podem ser preparadas:
-uma em uso e duas antecipadas. A fila mantém a ordem de criação, mesmo se a segunda ficar pronta antes da
+Na mesma engrenagem, **Fila de checagens** define quantas ficam antecipadas, separadamente para cada
+perfil: de **0 a 10**, com padrão **2**. **0 desliga somente a antecipação**, mantendo a repetição e
+a checagem normal do site. A checagem em uso não entra nessa quantidade. Os dois valores são salvos
+juntos e acompanham o backup; backups antigos usam a fila padrão de 2. Abrir as configurações pausa
+o ciclo e cancela as checagens pendentes; depois de salvar, retome pelo painel.
+
+Enquanto a checagem atual ou uma solicitação aguarda resposta, a quantidade configurada pode ser preparada.
+Com o padrão, fica uma em uso e duas antecipadas. A fila mantém a ordem de criação, mesmo se a segunda ficar pronta antes da
 primeira, e repõe a posição livre quando uma checagem assume a vez. O painel mostra quantas estão na fila
 e quantas estão prontas. Uma
 aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações

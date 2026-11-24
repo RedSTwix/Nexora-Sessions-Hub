@@ -8,7 +8,9 @@
   if(!api||typeof api.render!=='function')return {installed:false};
   const originalRender=api.render,originalRemove=api.remove;
   let current=null,configTemplate=null,stopped=false,created=0,used=0,ready=0,expired=0,cancelledChecks=0,cancelledReason='';
-  const capacity=2,prepared=[],events=[],ownedWidgets=new Set();
+  let capacity=root.__nexoraSiteAssistant?.queueSize?.()??2;
+  if(!Number.isInteger(capacity)||capacity<0||capacity>10)capacity=2;
+  const prepared=[],events=[],ownedWidgets=new Set();
   const enabled=()=>!stopped&&!!window.__nexoraVidoAssistant?.isActive?.();
   const record=type=>{events.push({type,at:Math.round(performance.now())});if(events.length>80)events.shift();
     root.dispatchEvent(new Event('nexora-vidogrid-change'));};
@@ -158,6 +160,13 @@
   function sync(){
     if(!enabled())cancelPending();
   }
+  function setCapacity(value){
+    if(!Number.isInteger(value)||value<0||value>10)return false;
+    if(value===capacity)return true;
+    capacity=value;
+    while(prepared.length>capacity)remove(prepared[prepared.length-1]);
+    prepare();record('queue-capacity-changed');return true;
+  }
   const timer=setInterval(sync,500);
   function status(){const next=prepared[0];return {installed:true,enabled:enabled(),created,ready,used,expired,
     queueCapacity:capacity,queued:prepared.length,readyCount:prepared.filter(item=>!!item.approval).length,
@@ -171,7 +180,7 @@
     if(api.remove===wrappedRemove)api.remove=originalRemove;
     if(window.__nexoraVidoPreload===controller)delete window.__nexoraVidoPreload;
     return {restored:true,status:status()};}
-  const controller={status,sync,cancelPending,restore,isSiteVerificationPending:()=>!!current||ownedWidgets.size>0,
+  const controller={status,sync,cancelPending,restore,setCapacity,isSiteVerificationPending:()=>!!current||ownedWidgets.size>0,
     cancelledSiteVerifications:()=>cancelledChecks,cancelledSiteVerificationReason:()=>cancelledReason};
   window.__nexoraVidoPreload=controller;
   return status();

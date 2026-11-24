@@ -6,9 +6,11 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.net.Uri;
 import android.text.InputType;
+import android.graphics.Typeface;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
 import android.webkit.WebView;
 import android.widget.Toast;
 import androidx.webkit.WebMessageCompat;
@@ -96,7 +98,8 @@ final class SiteAssistant {
     }
 
     private String configuredSource() {
-        return source + "\nwindow.__nexoraSiteAssistant?.setAcceptedLimit(" + settings.acceptedLimit(profileId) + ");";
+        return source + "\nwindow.__nexoraSiteAssistant?.setAcceptedLimit(" + settings.acceptedLimit(profileId) + ");"
+                + "\nwindow.__nexoraSiteAssistant?.setQueueSize(" + settings.queueSize(profileId) + ");";
     }
 
     @SuppressLint("RequiresFeature")
@@ -115,26 +118,48 @@ final class SiteAssistant {
         layout.setOrientation(LinearLayout.VERTICAL);
         int padding = Math.round(20 * context.getResources().getDisplayMetrics().density);
         layout.setPadding(padding, padding / 2, padding, padding / 2);
+        TextView repetitionTitle = new TextView(context);
+        repetitionTitle.setText("Repetição"); repetitionTitle.setTextSize(16); repetitionTitle.setTypeface(null, Typeface.BOLD);
+        layout.addView(repetitionTitle);
         TextView description = new TextView(context);
-        description.setText("Pausar após quantas solicitações aceitas?\n0 = sem limite. Padrão: 5.\n\nO valor fica salvo somente neste perfil.");
+        description.setText("Pausar após quantas solicitações aceitas?\n0 = sem limite. Padrão: 5.");
         description.setTextSize(14); layout.addView(description);
         EditText limit = new EditText(context);
         limit.setInputType(InputType.TYPE_CLASS_NUMBER); limit.setSingleLine(true);
         limit.setContentDescription("Limite de solicitações aceitas");
         limit.setText(Integer.toString(settings.acceptedLimit(profileId))); limit.setSelectAllOnFocus(true);
         layout.addView(limit);
+        TextView queueTitle = new TextView(context);
+        queueTitle.setText("Fila de checagens"); queueTitle.setTextSize(16); queueTitle.setTypeface(null, Typeface.BOLD);
+        queueTitle.setPadding(0, padding / 2, 0, 0); layout.addView(queueTitle);
+        TextView queueDescription = new TextView(context);
+        queueDescription.setText("Quantas checagens deixar antecipadas?\nDe 0 a " + SiteAssistantSettings.MAX_QUEUE_SIZE
+                + ". Padrão: 2.\n0 = desligar a antecipação. A checagem em uso não entra nesta quantidade.");
+        queueDescription.setTextSize(14); layout.addView(queueDescription);
+        EditText queue = new EditText(context);
+        queue.setInputType(InputType.TYPE_CLASS_NUMBER); queue.setSingleLine(true);
+        queue.setContentDescription("Quantidade de checagens antecipadas");
+        queue.setText(Integer.toString(settings.queueSize(profileId))); queue.setSelectAllOnFocus(true);
+        layout.addView(queue);
         TextView note = new TextView(context);
-        note.setText("A repetição fica pausada durante a configuração. Após salvar, retome pelo painel.");
+        note.setText("Os dois valores ficam salvos somente neste perfil e acompanham o backup.\n\nA repetição fica pausada durante a configuração. Após salvar, retome pelo painel.");
         note.setTextSize(13); layout.addView(note);
+        ScrollView scroll = new ScrollView(context); scroll.addView(layout);
         settingsDialog = new AlertDialog.Builder(context).setTitle("Configurações do assistente")
-                .setView(layout).setNegativeButton("Cancelar", null).setPositiveButton("Salvar", null).create();
+                .setView(scroll).setNegativeButton("Cancelar", null).setPositiveButton("Salvar", null).create();
         settingsDialog.setOnShowListener(dialog -> settingsDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
             if (closed || settingsDialog == null) return;
             final int value;
             try { value = Integer.parseInt(limit.getText().toString().trim()); }
             catch (NumberFormatException exception) { limit.setError("Informe um número inteiro a partir de 0."); return; }
             if (value < 0) { limit.setError("Informe um número a partir de 0."); return; }
-            if (!settings.saveAcceptedLimit(profileId, value)) {
+            final int queueSize;
+            try { queueSize = Integer.parseInt(queue.getText().toString().trim()); }
+            catch (NumberFormatException exception) { queue.setError("Informe um número inteiro de 0 a " + SiteAssistantSettings.MAX_QUEUE_SIZE + "."); return; }
+            if (queueSize < 0 || queueSize > SiteAssistantSettings.MAX_QUEUE_SIZE) {
+                queue.setError("Use uma quantidade de 0 a " + SiteAssistantSettings.MAX_QUEUE_SIZE + "."); return;
+            }
+            if (!settings.save(profileId, value, queueSize)) {
                 limit.setError("Não foi possível salvar. Tente novamente."); return;
             }
             registerScript(); refresh(); settingsDialog.dismiss();
