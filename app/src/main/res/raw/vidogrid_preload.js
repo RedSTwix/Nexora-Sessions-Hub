@@ -145,8 +145,9 @@
     const options={...config,callback:function(...values){
       if(owned.cancelled||!enabled())return;
       ownedWidgets.delete(owned);
-      const result=Reflect.apply(config.callback,this,values);
+      // The site's callback may pause or close the panel synchronously. Its reset must win.
       firstApproved=true;
+      const result=Reflect.apply(config.callback,this,values);
       record('normal-approval-delivered');queueMicrotask(prepare);return result;
     }};
     try{owned.id=Reflect.apply(target,receiver,[selector,options,...args.slice(2)]);queueMicrotask(prepare);return owned.id;}

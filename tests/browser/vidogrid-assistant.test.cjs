@@ -386,18 +386,50 @@ test('queue of five grows after first approval, shows departures and staged refi
   await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 1/5 antecipadas'));
   await waitQueue(page,5);
   assert.equal(await page.evaluate(()=>window.sequence),6);
-  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/Fila: 5\/5 antecipadas · 0 prontas · 0 utilizadas/);
+  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/Fila: 5\/5 antecipadas · 0 prontas/);
+  assert.doesNotMatch(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/utilizad/);
   await page.evaluate(()=>window.approve('2'));
   await page.evaluate(()=>window.finishRequest(503));
   await page.waitForFunction(()=>window.sent===2);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queued),4);
   await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 4/5 antecipadas'));
-  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('1 utilizada'));
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().used),1);
   await waitQueue(page,5);
   await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 5/5 antecipadas'));
-  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/1 utilizada/);
+  assert.doesNotMatch(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/utilizad/);
  }finally{await context.close();}
 });
+test('pausing inside the site approval and resuming immediately preserves initial verification priority',async()=>{
+ const {context,page}=await open();try{
+  await activate(page);
+  const state=await page.evaluate(()=>{
+   window.onGenerationRequest=()=>window.__nexoraVidoAssistant.pause();
+   window.approve('1');window.onGenerationRequest=null;
+   window.finishRequest(503);window.__nexoraVidoAssistant.toggle();
+   const status=window.__nexoraVidoPreload.status();
+   return {firstCheckPriority:status.firstCheckPriority,queued:status.queued};
+  });
+  assert.deepEqual(state,{firstCheckPriority:true,queued:0});
+  await page.waitForTimeout(700);
+  assert.equal(await page.evaluate(()=>window.sequence),2);
+  await page.evaluate(()=>window.approve(window.siteWidget));
+  await waitQueue(page,2);
+  assert.equal(await page.evaluate(()=>window.sent),2);
+ }finally{await context.close();}
+});
+
+for(const action of ['pause','close'])test(`${action}: a scheduled refill cannot recreate checks after cancellation`,async()=>{
+ const {context,page}=await open(undefined,'',5,{},5);try{
+  await activate(page);await page.evaluate(()=>window.approve('1'));
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().refillScheduled),true);
+  await page.evaluate(action=>action==='pause'?window.__nexoraVidoAssistant.pause():window.__nexoraSiteAssistant.hide(),action);
+  const created=await page.evaluate(()=>window.sequence);
+  await page.waitForTimeout(800);
+  assert.equal(await page.evaluate(()=>window.sequence),created);
+  assert.equal(await page.locator('[data-nexora-precheck]').count(),0);
+ }finally{await context.close();}
+});
+
 test('queue zero disables anticipation but normal verification and repetition remain available',async()=>{
  const {context,page}=await open(undefined,'',5,{},0);try{
   await activate(page);

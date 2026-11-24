@@ -1,6 +1,9 @@
 package com.rafael.groksessions;
 
 import android.app.Dialog;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -119,8 +122,14 @@ public final class AvailabilitySettingsTest {
         assertNotNull(indicator);
         assertTrue(indicator.isClickable());
         assertEquals(Math.round(48 * activity.getResources().getDisplayMetrics().density), indicator.getLayoutParams().width);
+        LayerDrawable drawing = (LayerDrawable) ((RippleDrawable) indicator.getBackground()).getDrawable(0);
+        int originalDiameter = Math.round(12 * activity.getResources().getDisplayMetrics().density);
+        assertEquals(originalDiameter, drawing.getLayerWidth(0));
+        assertEquals(originalDiameter, drawing.getLayerHeight(0));
+        assertEquals("", ((TextView) indicator).getText().toString());
         indicator.performClick();
         assertEquals(AvailabilityStatus.YELLOW, repository.getAvailabilityStatus(account.id, PROFILE_USED));
+        assertEquals(AvailabilityStatus.YELLOW.color, ((GradientDrawable) drawing.getDrawable(0)).getColor().getDefaultColor());
         assertEquals(2 * hour, repository.availabilityRemainingMillis(account.id, PROFILE_USED));
         assertNotNull(findDescription(card, "Perfil usado · Amarelo"));
         now.addAndGet(hour);

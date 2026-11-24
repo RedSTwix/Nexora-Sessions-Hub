@@ -1664,8 +1664,7 @@ public final class MainActivity extends Activity {
         if (editable) {
             ProfileIndicatorButton button = new ProfileIndicatorButton(this, repository, accountId,
                     this::refreshAvailabilityIndicators);
-            button.setTextSize(16);
-            button.setBackground(pressableBackground(Color.TRANSPARENT, Color.rgb(16, 49, 62), Color.TRANSPARENT, 12));
+            button.useListAppearance();
             dot = button;
         } else {
             dot = new View(this);

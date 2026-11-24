@@ -154,8 +154,8 @@ Depois, a fila é preenchida progressivamente, criando uma checagem por etapa, s
 preparações durante uma verificação atual pendente. Com o padrão, pode ficar uma em uso e duas
 antecipadas. A fila mantém a ordem de criação, mesmo se a segunda ficar pronta antes da primeira,
 e repõe gradualmente as posições livres quando uma checagem assume a vez ou expira. O painel
-atualiza a quantidade real na fila, quantas estão prontas e quantas aprovações antecipadas já
-foram utilizadas; a fila cheia naturalmente volta a mostrar o total configurado. Uma
+atualiza a quantidade real na fila e quantas estão prontas, sem um contador de checagens utilizadas;
+a fila cheia naturalmente volta a mostrar o total configurado. Uma
 aprovação nova fica apenas em memória e é entregue uma vez ao próximo envio normal. Aprovações
 expiradas ou de outro contexto são descartadas. Se a preparação estiver pronta, sua aprovação é usada
 na próxima solicitação. Se ainda estiver pendente quando chegar sua vez, a mesma checagem é exibida

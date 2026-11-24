@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -21,6 +23,7 @@ final class ProfileIndicatorButton extends TextView {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refreshTask = this::refresh;
     private boolean refreshing;
+    private GradientDrawable listDot;
 
     ProfileIndicatorButton(Context context, AccountRepository repository, String profileId) {
         this(context, repository, profileId, () -> {});
@@ -48,6 +51,20 @@ final class ProfileIndicatorButton extends TextView {
         refresh();
     }
 
+    void useListAppearance() {
+        float density = getResources().getDisplayMetrics().density;
+        listDot = new GradientDrawable();
+        listDot.setShape(GradientDrawable.OVAL);
+        listDot.setStroke(Math.max(1, Math.round(density)), Color.argb(180, 255, 255, 255));
+        LayerDrawable layers = new LayerDrawable(new Drawable[]{listDot});
+        int diameter = Math.round(12 * density);
+        layers.setLayerSize(0, diameter, diameter);
+        layers.setLayerGravity(0, Gravity.CENTER);
+        setText("");
+        setBackground(new RippleDrawable(ColorStateList.valueOf(0x3342EEE2), layers, null));
+        refresh();
+    }
+
     void startRefreshing() {
         refreshing = true;
         refresh();
@@ -72,6 +89,7 @@ final class ProfileIndicatorButton extends TextView {
         if (enabled) {
             AvailabilityStatus status = repository.getAvailabilityStatus(profileId, AvailabilityMode.PROFILE_USED);
             setTextColor(status.color);
+            if (listDot != null) listDot.setColor(status.color);
             setContentDescription("Perfil usado · " + status.description(repository.getAvailabilityDurationHours(
                     AvailabilityMode.PROFILE_USED)) + " · Toque para marcar "
                     + repository.nextProfileIndicatorStatus(profileId).label);
