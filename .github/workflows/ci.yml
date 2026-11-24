@@ -72,8 +72,11 @@ jobs:
       - name: Permitir execução do Gradle Wrapper
         run: chmod +x gradlew
 
+      - name: Validar novas tentativas de download
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
       - name: Validar e compilar
-        run: ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
+        run: python3 .github/scripts/gradle_retry.py --no-daemon lintDebug testDebugUnitTest assembleDebug
 
       - name: Armazenar APK de validação
         uses: actions/upload-artifact@v7
