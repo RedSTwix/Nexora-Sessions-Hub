@@ -178,3 +178,25 @@ jobs:
         if: always()
         shell: bash
         run: rm -f release.keystore
+
+  cleanup:
+    name: Manter as 10 releases mais recentes
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validar a seleção das releases antigas
+        run: python3 -m unittest discover -s .github/scripts -p 'test_cleanup_releases.py'
+
+      - name: Excluir somente as releases publicadas fora das 10 mais recentes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/cleanup_releases.py --keep 10 --apply

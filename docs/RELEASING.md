@@ -5,6 +5,20 @@ um push na branch `main`. Ele lê `versionName` de `app/build.gradle.kts`, compi
 valida a assinatura, gera SHA-256, cria a tag `vX.Y.Z` e publica a release. Se essa tag já existir,
 o workflow termina sem republicar a mesma versão.
 
+Após o job de publicação concluir com sucesso, o job de limpeza mantém somente as **10 releases
+publicadas mais recentes**, ordenadas por `published_at` (incluindo pré-releases). As releases
+mais antigas são excluídas com seus APKs e anexos. Rascunhos e releases ainda não publicadas
+não entram na contagem e não são excluídos. Tags Git e commits são preservados.
+
+A limpeza também funciona ao executar novamente o workflow com uma versão já publicada.
+Para conferir a seleção localmente, sem excluir nada:
+
+```powershell
+python -B .github/scripts/cleanup_releases.py --repo RedSTwix/Nexora-Sessions-Hub --keep 10
+```
+
+O script só executa exclusões com `--apply`; o workflow usa essa opção automaticamente.
+
 CI e release usam o [espelho público do Maven Central mantido pelo Google](https://docs.cloud.google.com/docs/buildpacks/java#google_cloud_hosted_maven_central_mirror)
 para plugins, dependências e jars de execução do Robolectric. O workflow ativa essa configuração
 com `NEXORA_MAVEN_MIRROR=google`; compilações locais mantêm os repositórios padrão se a variável

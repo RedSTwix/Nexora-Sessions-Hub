@@ -75,7 +75,7 @@ jobs:
       - name: Permitir execução do Gradle Wrapper
         run: chmod +x gradlew
 
-      - name: Validar novas tentativas de download
+      - name: Validar scripts de automação
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Validar e compilar
