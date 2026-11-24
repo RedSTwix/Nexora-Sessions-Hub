@@ -197,7 +197,7 @@
   const timer=setInterval(sync,500);
   function status(){const next=prepared[0];return {installed:true,enabled:enabled(),created,ready,used,expired,
     queueCapacity:capacity,queued:prepared.length,readyCount:prepared.filter(item=>!!item.approval).length,
-    firstCheckPriority:!firstApproved&&capacity>0,refillScheduled:prepareTimer!==null,
+    firstCheckPriority:enabled()&&!firstApproved&&capacity>0,refillScheduled:prepareTimer!==null,
     queue:prepared.map(item=>({approvalReady:!!item.approval,needsInteraction:item.needsInteraction})),
     preparing:!!next&&!next.approval,approvalReady:!!next?.approval,assigned:!!current,
     awaitingSiteVerification:ownedWidgets.size>0,

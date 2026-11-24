@@ -367,6 +367,30 @@ test('queue promotion preserves the pending widget even without the moveBefore b
   assert.equal(await page.evaluate(()=>window.sent),2);
  }finally{await context.close();}
 });
+test('queue of five grows after first approval, shows departures and staged refill in the panel',async()=>{
+ const {context,page}=await open(undefined,'',5,{},5);try{
+  await activate(page);
+  assert.deepEqual(await page.evaluate(()=>{const s=window.__nexoraVidoPreload.status();
+   return [s.queued,s.readyCount,s.queueCapacity,s.firstCheckPriority];}),[0,0,5,true]);
+  await page.waitForTimeout(550);
+  assert.equal(await page.evaluate(()=>window.sequence),1);
+  await page.evaluate(()=>window.approve('1'));
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queued),1);
+  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 1/5 antecipadas'));
+  await waitQueue(page,5);
+  assert.equal(await page.evaluate(()=>window.sequence),6);
+  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/Fila: 5\/5 antecipadas · 0 prontas · 0 utilizadas/);
+  await page.evaluate(()=>window.approve('2'));
+  await page.evaluate(()=>window.finishRequest(503));
+  await page.waitForFunction(()=>window.sent===2);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queued),4);
+  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 4/5 antecipadas'));
+  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/1 utilizada/);
+  await waitQueue(page,5);
+  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 5/5 antecipadas'));
+  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/1 utilizada/);
+ }finally{await context.close();}
+});
 test('queue zero disables anticipation but normal verification and repetition remain available',async()=>{
  const {context,page}=await open(undefined,'',5,{},0);try{
   await activate(page);
