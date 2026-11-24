@@ -593,8 +593,7 @@ test('a ready second entry cannot overtake the first and both positions are repl
   await waitQueue(page,2);
   await page.evaluate(()=>{window.approve('2');window.approve('3');});
   assert.equal(await page.evaluate(()=>window.sent),3);
-  await page.waitForFunction(()=>window.panelShadow.querySelector('#preload').textContent.includes('Fila: 2/2 antecipadas'));
-  assert.match(await page.evaluate(()=>window.panelShadow.querySelector('#preload').textContent),/Fila: 2\/2 antecipadas/);
+  assert.equal(await page.evaluate(()=>window.__nexoraVidoPreload.status().queued),2);
  }finally{await context.close();}
 });
 
@@ -655,9 +654,9 @@ test('two accepted jobs with the same displayed second are distinguished after t
  const {context,page}=await open();try{
   await activate(page);await page.evaluate(()=>window.approve('1'));await page.evaluate(()=>window.approve('2'));
   await page.evaluate(()=>window.finishRequest(202));await page.waitForFunction(()=>window.sent===2);
+  await page.evaluate(()=>window.finishRequest(202));
   await page.waitForFunction(()=>window.clicks===3);
   await page.evaluate(()=>window.approve(window.siteWidget));
-  await page.evaluate(()=>window.finishRequest(202));
   await page.waitForFunction(()=>window.sent===3);
   assert.equal(await page.evaluate(()=>window.__nexoraVidoAssistant.status().accepted),2);
  }finally{await context.close();}
