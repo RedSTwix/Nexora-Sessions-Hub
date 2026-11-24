@@ -1671,7 +1671,7 @@ public final class MainActivity extends Activity {
         }
         AvailabilityIndicator indicator = new AvailabilityIndicator(dot, folderId, accountId, mode);
         updateAvailabilityIndicator(indicator, dot);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(editable ? 48 : 12), dp(editable ? 48 : 12));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(12), dp(12));
         params.setMargins(dp(5), 0, dp(10), 0);
         row.addView(dot, params);
         availabilityIndicators.add(indicator);

@@ -121,9 +121,10 @@ public final class AvailabilitySettingsTest {
         View indicator = findDescription(card, "Perfil usado · Em espera");
         assertNotNull(indicator);
         assertTrue(indicator.isClickable());
-        assertEquals(Math.round(48 * activity.getResources().getDisplayMetrics().density), indicator.getLayoutParams().width);
         LayerDrawable drawing = (LayerDrawable) ((RippleDrawable) indicator.getBackground()).getDrawable(0);
         int originalDiameter = Math.round(12 * activity.getResources().getDisplayMetrics().density);
+        assertEquals(originalDiameter, indicator.getLayoutParams().width);
+        assertEquals(originalDiameter, indicator.getLayoutParams().height);
         assertEquals(originalDiameter, drawing.getLayerWidth(0));
         assertEquals(originalDiameter, drawing.getLayerHeight(0));
         assertEquals("", ((TextView) indicator).getText().toString());
